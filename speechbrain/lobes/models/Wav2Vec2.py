@@ -133,6 +133,47 @@ class W2V2PositionalEncoding(nn.Module):
 
         return x
 
+class W2V2FeatureMasker(nn.Module):
+    def __init__(self,
+                 mask_dim=768,
+                 mask_prob=0.065,
+                 mask_len=10):
+        super().__init__()
+        self.mask_prob = mask_prob
+        self.mask_len = mask_len
+
+        if self.mask_prob > 0:
+            self.mask_emb = nn.Parameter(torch.FloatTensor(mask_dim).uniform_())
+
+    def forward(self, x, mask):
+        x[mask] = self.mask_emb
+        return x
+
+    def get_mask(self, input_shape):
+        ''' The same mask is applied to every sample in the batch '''
+
+        batch_size, timesteps = input_shape[0], input_shape[1]
+
+        mask = torch.rand(timesteps - self.mask_len)
+        mask = torch.where(mask < self.mask_prob, True, False)
+        mask = torch.cat((mask, torch.zeros((self.mask_len), dtype=bool)), dim=0)
+        mask_indices = mask.nonzero()
+        mask_indices = mask_indices.squeeze(-1)
+
+        for timestep in mask_indices:
+            mask[timestep:timestep + self.mask_len] = True
+
+        mask_indices = mask.nonzero()
+        mask_indices = mask_indices.squeeze(-1)
+
+        mask = mask.unsqueeze(0)
+        mask = mask.expand(batch_size, timesteps)
+
+        return mask, mask_indices
+
+    def get_unmasked_features(self, x, mask_indices):
+        return x[:, mask_indices, :] # expects & returns B, T, C
+
 class Wav2Vec2(nn.Module):
     """This lobe is a wav2vec2.0 implementation.
     The idea is that, by default, this is initialized to the
@@ -141,16 +182,15 @@ class Wav2Vec2(nn.Module):
     with HyperPyYAML.
     """
 
-    def __init__(
-        self,
-        latent_extractor=W2V2LatentExtractor(),
-        latent_projector=Linear(n_neurons=768, input_size=512),
-        positional_encoding=W2V2PositionalEncoding(),
-        context_extractor=W2V2ContextExtractorBase(),
-        vector_quantizer=None,
-        feat_masker=None,
-        loss_terms=None
-    ):
+    def __init__(self,
+                 latent_extractor=W2V2LatentExtractor(),
+                 latent_projector=Linear(n_neurons=768, input_size=512),
+                 positional_encoding=W2V2PositionalEncoding(),
+                 context_extractor=W2V2ContextExtractorBase(),
+                 vector_quantizer=None,
+                 feat_masker=W2V2FeatureMasker(),
+                 loss_terms=None
+                ):
         super().__init__()
         self.latent_extractor = latent_extractor
         self.latent_projector = latent_projector
@@ -180,12 +220,13 @@ class Wav2Vec2(nn.Module):
             latent = None
 
         if apply_mask:
-            mask_indices = self.feat_masker.get_indices(feat) # get indices
-            target = feat[mask_indices]
+            mask, mask_indices = self.feat_masker.get_mask(feat.shape) # get indices
+            target = self.feat_masker.get_unmasked_features(feat, mask_indices)
+
             if self.vector_quantizer:
                 target = self.vector_quantizer(target)
 
-            feat = self.feat_masker(feat) # mask
+            feat = self.feat_masker(feat, mask) # mask
         else:
             mask_indices, target = None, None
 
