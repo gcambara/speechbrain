@@ -15,6 +15,7 @@ from torch import nn
 from speechbrain.nnet.CNN import Conv1d
 from speechbrain.nnet.linear import Linear
 from speechbrain.nnet.normalization import LayerNorm
+from speechbrain.nnet.quantizers import GumbelVectorQuantizer
 from speechbrain.lobes.models.transformer.Transformer import TransformerEncoderLayer
 
 class W2V2LatentExtractor(nn.Module):
@@ -174,6 +175,36 @@ class W2V2FeatureMasker(nn.Module):
     def get_unmasked_features(self, x, mask_indices):
         return x[:, mask_indices, :] # expects & returns B, T, C
 
+class W2V2Quantizer(nn.Module):
+    def __init__(self,
+                 dim=512,
+                 num_vars=320,
+                 temp=(2, 0.5, 0.999995),
+                 groups=2,
+                 combine_groups=False,
+                 vq_dim=768,
+                 time_first=True,
+                 activation=nn.GELU(),
+                 weight_proj_depth=1,
+                 weight_proj_factor=3
+                 ):
+        super().__init__()
+        self.quantizer = GumbelVectorQuantizer(dim=dim,
+                                               num_vars=num_vars,
+                                               temp=temp,
+                                               groups=groups,
+                                               combine_groups=combine_groups,
+                                               vq_dim=vq_dim,
+                                               time_first=time_first,
+                                               activation=activation,
+                                               weight_proj_depth=weight_proj_depth,
+                                               weight_proj_factor=weight_proj_factor,
+                                              )
+
+    def forward(self, x):
+        return self.quantizer(x)
+
+
 class Wav2Vec2(nn.Module):
     """This lobe is a wav2vec2.0 implementation.
     The idea is that, by default, this is initialized to the
@@ -187,7 +218,7 @@ class Wav2Vec2(nn.Module):
                  latent_projector=Linear(n_neurons=768, input_size=512),
                  positional_encoding=W2V2PositionalEncoding(),
                  context_extractor=W2V2ContextExtractorBase(),
-                 vector_quantizer=None,
+                 vector_quantizer=W2V2Quantizer(),
                  feat_masker=W2V2FeatureMasker(),
                  loss_terms=None
                 ):
@@ -212,7 +243,18 @@ class Wav2Vec2(nn.Module):
         """
 
         feat = self.latent_extractor(wav)
-        feat = self.latent_projector(feat)
+
+        if apply_mask:
+            mask, mask_indices = self.feat_masker.get_mask(feat.shape)
+            unmasked_feats = self.feat_masker.get_unmasked_features(feat, mask_indices)
+
+            if self.vector_quantizer:
+                target = self.vector_quantizer(unmasked_feats)
+        else:
+            mask_indices, target = None, None
+
+        if self.latent_projector:
+            feat = self.latent_projector(feat)
 
         if return_latent:
             latent = feat.clone()
@@ -220,15 +262,7 @@ class Wav2Vec2(nn.Module):
             latent = None
 
         if apply_mask:
-            mask, mask_indices = self.feat_masker.get_mask(feat.shape) # get indices
-            target = self.feat_masker.get_unmasked_features(feat, mask_indices)
-
-            if self.vector_quantizer:
-                target = self.vector_quantizer(target)
-
             feat = self.feat_masker(feat, mask) # mask
-        else:
-            mask_indices, target = None, None
 
         if self.positional_encoding:
             feat += self.positional_encoding(feat)
@@ -247,3 +281,71 @@ class Wav2Vec2(nn.Module):
             losses['total_loss'] += loss_weight * loss
 
         return losses
+
+    def arrange_distractors(self, feat, q, max_distractors=100):
+        batch_size, timesteps, _ = feat.shape
+
+        if timesteps <= max_distractors - 1: # no need to randomly sample, we'll use all
+            shifts = torch.arange(1, timesteps)
+        else:
+            shifts = torch.randperm(timesteps - 1) + 1
+            shifts = shifts[:max_distractors]
+
+        feat_with_distractors = [feat]
+        q_with_distractors = [q]
+        for shift in shifts:
+            feat_with_distractors.append(torch.roll(feat, shifts=shift.item(), dims=1))
+            q_with_distractors.append(q)
+        feat_with_distractors = torch.cat(feat_with_distractors, dim=1)
+        q_with_distractors = torch.cat(q_with_distractors, dim=1)
+
+        targets = torch.zeros(feat_with_distractors.shape)
+        targets[:, :timesteps, :] = 1
+
+        # so, we have feat and q vectors, initially their positions
+        # should match each other. let's consider we have
+        # T = 4 timesteps
+        # feat = [a, b, c, d]
+        # q    = [a, b, c, d]
+
+        # if the amount of timesteps is less than distractors
+        # we'll just use as many timesteps we have
+
+        # if not, we will cut to distractors
+
+        # we will roll the feat vector to have all the combinations
+        # feat = [a, b, c, d] [b, c, d, a] [c, d, a, b] [d, a, b, c]
+        # q    = [a, b, c, d] [a, b, c, d] [a, b, c, d] [a, b, c, d]
+
+        # so, we generate a shifts vector with random integers
+        # shifts = torch.randperm(T - 1) = torch.randperm(3)
+        # shifts = [0, 2, 1]
+        # shift 0 is the same, so we repeat the positive, so just sum 1
+        # shifts = torch.randperm(T - 1) + 1
+        # shifts = shifts[:K]
+        # shifts = [1, 3, 2]
+
+        # for the case under the max or equal number of distractors
+        # simply arange
+        # shifts = torch.arange(1, T)
+        # shifts = [1, 2, 3]
+
+        # now create tensor_buffer = [feat]
+        # for shift in shifts:
+        #   tensor_buffer.append(torch.roll(feat, shifts=shift))
+        # feat_w_distractors = torch.cat(tensor_buffer)
+        # q_w_distractors = q.expand(q.size(0), q.size(1)**2)
+
+        # generate target vector as
+        # target = [1, 1, 1, 1] [0, 0, 0, 0] [0, 0, 0, 0] [0, 0, 0, 0]
+        # target = torch.zeros(q.shape)
+        # target[:, :T-1, :] = 1
+
+        return feat_with_distractors, q_with_distractors, target
+
+def wav2vec2_contrastive_loss(x1, x2, target, similarity=nn.CosineSimilarity(dim=-1), temp=0.1, reduction='none'):
+    logits = similarity(x1, x2) / temp
+    loss = F.cross_entropy(logits, target, reduction=reduction)
+    return loss
+
+
