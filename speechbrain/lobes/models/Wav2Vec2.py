@@ -204,6 +204,39 @@ class W2V2Quantizer(nn.Module):
     def forward(self, x):
         return self.quantizer(x)
 
+class W2V2Loss(nn.Module):
+    def __init__(self,
+                 contrastive_loss=nn.CrossEntropyLoss(reduction='mean'),
+                 contrastive_weight=1.0,
+                 diversity_weight=0.1,
+                 similarity=nn.CosineSimilarity(dim=-1),
+                 temp=0.1):
+        super().__init__()
+
+        self.contrastive_loss = contrastive_loss
+        self.contrastive_weight = contrastive_weight
+        self.diversity_weight = diversity_weight
+        self.similarity = similarity
+        self.temp = temp
+
+    def forward(self, feat, quant, target, num_vars, prob_perplexity):
+        loss = 0.0
+        if self.contrastive_weight:
+            logits = self.similarity(feat, quant) / self.temp
+            contrastive_loss = self.contrastive_loss(logits, target)
+            loss += self.contrastive_weight * contrastive_loss
+        else:
+            logits, contrastive_loss = None, None
+
+        if self.diversity_weight:
+            diversity_loss = (num_vars - prob_perplexity) / num_vars
+            loss += self.diversity_weight * diversity_loss
+        else:
+            diversity_loss = None
+
+        return {'loss': loss, 'contrastive_loss': contrastive_loss,
+                'diversity_loss': diversity_loss,
+                'logits': logits}
 
 class Wav2Vec2(nn.Module):
     """This lobe is a wav2vec2.0 implementation.
@@ -220,7 +253,7 @@ class Wav2Vec2(nn.Module):
                  context_extractor=W2V2ContextExtractorBase(),
                  vector_quantizer=W2V2Quantizer(),
                  feat_masker=W2V2FeatureMasker(),
-                 loss_terms=None
+                 loss=W2V2Loss()
                 ):
         super().__init__()
         self.latent_extractor = latent_extractor
@@ -231,7 +264,7 @@ class Wav2Vec2(nn.Module):
         self.feat_masker = feat_masker # any function that returns a feat map masked, with the indices
                                        # a feat masker has the mask vector (learnable or not), and the
                                        # policy to select the indices to be masked
-        self.loss_terms = loss_terms # a dict with loss functions to be summed up, plus their weights
+        self.loss = loss # a loss function
 
     def forward(self, wav, apply_mask=False, return_latent=True):
         """Takes an input waveform and returns its corresponding wav2vec2.0 encoding.
@@ -249,9 +282,9 @@ class Wav2Vec2(nn.Module):
             unmasked_feats = self.feat_masker.get_unmasked_features(feat, mask_indices)
 
             if self.vector_quantizer:
-                target = self.vector_quantizer(unmasked_feats)
+                quant = self.vector_quantizer(unmasked_feats)
         else:
-            mask_indices, target = None, None
+            mask_indices, quant = None, None
 
         if self.latent_projector:
             feat = self.latent_projector(feat)
@@ -268,19 +301,7 @@ class Wav2Vec2(nn.Module):
             feat += self.positional_encoding(feat)
         feat = self.context_extractor(feat)
 
-        return {'feat': feat, 'latent': latent, 'target': target, 'mask_indices': mask_indices}
-
-    def compute_losses(self, pred, target):
-        losses = {'total_loss': 0.0}
-
-        for loss_name, loss_tuple in self.loss_terms.items():
-            loss_weight, loss_function = loss_tuple
-            loss = loss_function(pred, target)
-
-            losses[loss_name] = loss
-            losses['total_loss'] += loss_weight * loss
-
-        return losses
+        return {'feat': feat, 'latent': latent, 'quant': quant, 'mask_indices': mask_indices}
 
     def arrange_distractors(self, feat, q, max_distractors=100):
         batch_size, timesteps, _ = feat.shape
@@ -299,8 +320,8 @@ class Wav2Vec2(nn.Module):
         feat_with_distractors = torch.cat(feat_with_distractors, dim=1)
         q_with_distractors = torch.cat(q_with_distractors, dim=1)
 
-        targets = torch.zeros(feat_with_distractors.shape)
-        targets[:, :timesteps, :] = 1
+        target = torch.zeros(feat_with_distractors.shape[:2])
+        target[:, :timesteps] = 1
 
         # so, we have feat and q vectors, initially their positions
         # should match each other. let's consider we have
@@ -343,9 +364,6 @@ class Wav2Vec2(nn.Module):
 
         return feat_with_distractors, q_with_distractors, target
 
-def wav2vec2_contrastive_loss(x1, x2, target, similarity=nn.CosineSimilarity(dim=-1), temp=0.1, reduction='none'):
-    logits = similarity(x1, x2) / temp
-    loss = F.cross_entropy(logits, target, reduction=reduction)
-    return loss
+
 
 

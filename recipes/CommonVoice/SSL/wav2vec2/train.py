@@ -34,9 +34,13 @@ class SSL(sb.core.Brain):
         # Forward pass
         out = self.modules.wav2vec2(wavs, apply_mask=True, return_latent=False)
 
-        pred, target = out['feat'], out['target']
-        mask_indices = out['mask_indices']
-        pred = pred[mask_indices]
+        feat, quant, mask_indices = out['feat'], out['quant'], out['mask_indices']
+
+        feat_masked = feat[:, mask_indices, :]
+
+        feat_masked, quant, target = self.modules.wav2vec2.arrange_distractors(feat_masked,
+                                                                               quant,
+                                                                               max_distractors=100)
 
         # now, check that c and q have the same dimension
         #losses = self.modules.wav2vec2.compute_losses(pred, target)
