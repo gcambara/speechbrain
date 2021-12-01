@@ -219,10 +219,10 @@ class W2V2Loss(nn.Module):
         self.similarity = similarity
         self.temp = temp
 
-    def forward(self, feat, quant, target, num_vars, prob_perplexity):
+    def forward(self, feat, quant_feat, target, num_vars, prob_perplexity):
         loss = 0.0
         if self.contrastive_weight:
-            logits = self.similarity(feat, quant) / self.temp
+            logits = self.similarity(feat, quant_feat) / self.temp
             contrastive_loss = self.contrastive_loss(logits, target)
             loss += self.contrastive_weight * contrastive_loss
         else:
@@ -303,7 +303,7 @@ class Wav2Vec2(nn.Module):
 
         return {'feat': feat, 'latent': latent, 'quant': quant, 'mask_indices': mask_indices}
 
-    def arrange_distractors(self, feat, q, max_distractors=100):
+    def arrange_distractors(self, feat, quant_feat, max_distractors=100):
         batch_size, timesteps, _ = feat.shape
 
         if timesteps <= max_distractors - 1: # no need to randomly sample, we'll use all
@@ -313,10 +313,10 @@ class Wav2Vec2(nn.Module):
             shifts = shifts[:max_distractors]
 
         feat_with_distractors = [feat]
-        q_with_distractors = [q]
+        q_with_distractors = [quant_feat]
         for shift in shifts:
             feat_with_distractors.append(torch.roll(feat, shifts=shift.item(), dims=1))
-            q_with_distractors.append(q)
+            q_with_distractors.append(quant_feat)
         feat_with_distractors = torch.cat(feat_with_distractors, dim=1)
         q_with_distractors = torch.cat(q_with_distractors, dim=1)
 

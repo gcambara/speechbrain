@@ -6,6 +6,7 @@ import speechbrain as sb
 import torchaudio
 from hyperpyyaml import load_hyperpyyaml
 from speechbrain.tokenizers.SentencePiece import SentencePiece
+from speechbrain.utils.Accuracy import Accuracy
 from speechbrain.utils.data_utils import undo_padding
 from speechbrain.utils.distributed import run_on_main
 
@@ -37,44 +38,35 @@ class SSL(sb.core.Brain):
         feat, quant, mask_indices = out['feat'], out['quant'], out['mask_indices']
 
         feat_masked = feat[:, mask_indices, :]
+        quant_feat = quant['x']
+        num_vars = quant['num_vars']
+        prob_perplexity = quant['prob_perplexity']
 
-        feat_masked, quant, target = self.modules.wav2vec2.arrange_distractors(feat_masked,
-                                                                               quant,
-                                                                               max_distractors=100)
+        feat_masked, quant_feat, target = self.modules.wav2vec2.arrange_distractors(feat_masked,
+                                                                                    quant_feat,
+                                                                                    max_distractors=100)
 
-        # now, check that c and q have the same dimension
-        #losses = self.modules.wav2vec2.compute_losses(pred, target)
-        #x = self.modules.enc(feats)
-        #logits = self.modules.ctc_lin(x)
-        #p_ctc = self.hparams.log_softmax(logits)
+        return feat_masked, quant_feat, target, num_vars, prob_perplexity
 
-        return pred, target
-
-    def compute_objectives(self, pred, target, batch, stage):
+    def compute_objectives(self, feat_masked, quant_feat, num_vars, prob_perplexity, target, batch, stage):
         """Computes the loss given predictions and targets."""
-
-        p_ctc, wav_lens = predictions
 
         ids = batch.id
 
-        loss = self.hparams.ctc_cost(p_ctc, tokens, wav_lens, tokens_lens)
+        loss_dict = self.modules.wav2vec2.loss(feat_masked, quant_feat, target, num_vars, prob_perplexity)
+        predictions = loss_dict['logits'] # this might be softmaxed
 
-        if stage != sb.Stage.TRAIN:
-            # Decode token terms to words
-            sequence = sb.decoders.ctc_greedy_decode(
-                p_ctc, wav_lens, blank_id=self.hparams.blank_index
-            )
+        # Compute Accuracy using MetricStats
+        self.acc_metric.append(
+            ids, predict=predictions, target=target, lengths=None
+        )
 
-            predicted_words = self.tokenizer(sequence, task="decode_from_list")
+        if loss_dict['contrastive_loss']:
+            self.loss_metric_contrastive.append(loss_dict['contrastive_loss'])
+        if loss_dict['diversity_loss']:
+            self.loss_metric_diversity.append(loss_dict['diversity_loss'])
 
-            # Convert indices to words
-            target_words = undo_padding(tokens, tokens_lens)
-            target_words = self.tokenizer(target_words, task="decode_from_list")
-
-            self.wer_metric.append(ids, predicted_words, target_words)
-            self.cer_metric.append(ids, predicted_words, target_words)
-
-        return loss
+        return loss_dict
 
     def fit_batch(self, batch):
         """Train the parameters given a single batch in input"""
@@ -83,8 +75,9 @@ class SSL(sb.core.Brain):
             self.wav2vec_optimizer.zero_grad()
 
             with torch.cuda.amp.autocast():
-                pred, target = self.compute_forward(batch, sb.Stage.TRAIN)
-                loss = self.compute_objectives(pred, target, batch, sb.Stage.TRAIN)
+                feat_masked, quant_feat, target, num_vars, prob_perplexity = self.compute_forward(batch, sb.Stage.TRAIN)
+                loss_dict = self.compute_objectives(feat_masked, quant_feat, num_vars, prob_perplexity, target, batch, sb.Stage.TRAIN)
+                loss = loss_dict['loss']
 
             self.scaler.scale(loss).backward()
             self.scaler.unscale_(self.wav2vec_optimizer)
@@ -95,9 +88,10 @@ class SSL(sb.core.Brain):
 
             self.scaler.update()
         else:
-            pred, target = self.compute_forward(batch, sb.Stage.TRAIN)
+            feat_masked, quant_feat, target, num_vars, prob_perplexity = self.compute_forward(batch, sb.Stage.TRAIN)
 
-            loss = self.compute_objectives(pred, target, batch, sb.Stage.TRAIN)
+            loss_dict = self.compute_objectives(feat_masked, quant_feat, num_vars, prob_perplexity, target, batch, sb.Stage.TRAIN)
+            loss = loss_dict['loss']
             loss.backward()
 
             if self.check_gradients(loss):
@@ -109,26 +103,48 @@ class SSL(sb.core.Brain):
 
     def evaluate_batch(self, batch, stage):
         """Computations needed for validation/test batches"""
-        pred, target = self.compute_forward(batch, stage=stage)
+        feat_masked, quant_feat, target, num_vars, prob_perplexity = self.compute_forward(batch, stage=stage)
         with torch.no_grad():
-            loss = self.compute_objectives(pred, target, batch, stage=stage)
+            loss = self.compute_objectives(feat_masked, quant_feat, num_vars, prob_perplexity, target, batch, stage=stage)
         return loss.detach()
 
     def on_stage_start(self, stage, epoch):
         """Gets called at the beginning of each epoch"""
-        if stage != sb.Stage.TRAIN:
-            self.cer_metric = self.hparams.cer_computer()
-            self.wer_metric = self.hparams.error_rate_computer()
+
+        # Compute Accuracy using MetricStats
+        # Define function taking (prediction, target, length) for eval
+        def accuracy_value(predict, target, lengths):
+            """Computes Accuracy"""
+            nbr_correct, nbr_total = Accuracy(
+                predict, target, lengths
+            )
+            acc = torch.tensor([nbr_correct / nbr_total])
+            return acc
+
+        def 
+
+        self.acc_metric = sb.utils.metric_stats.MetricStats(
+            metric=accuracy_value, n_jobs=1
+        )
+
+        self.loss_metric_contrastive = []
+        self.loss_metric_diversity = []
 
     def on_stage_end(self, stage, stage_loss, epoch):
         """Gets called at the end of an epoch."""
+
         # Compute/store important stats
-        stage_stats = {"loss": stage_loss}
+        stage_stats = {"loss": stage_loss, "acc": self.acc_metric.summarize("average")}
+
+        if self.loss_metric_contrastive != []
+            avg_loss_contrastive = float(sum(self.loss_metric_contrastive) / len(self.loss_metric_contrastive))
+            stage_stats['loss_contrastive'] = avg_loss_contrastive
+        if self.loss_metric_diversity != []
+            avg_loss_diversity = float(sum(self.loss_metric_diversity) / len(self.loss_metric_diversity))
+            stage_stats['loss_diversity'] = avg_loss_diversity
+
         if stage == sb.Stage.TRAIN:
             self.train_stats = stage_stats
-        else:
-            stage_stats["CER"] = self.cer_metric.summarize("error_rate")
-            stage_stats["WER"] = self.wer_metric.summarize("error_rate")
 
         # Perform end-of-iteration things, like annealing, logging, etc.
         if stage == sb.Stage.VALID:
@@ -150,15 +166,15 @@ class SSL(sb.core.Brain):
                 valid_stats=stage_stats,
             )
             self.checkpointer.save_and_keep_only(
-                meta={"WER": stage_stats["WER"]}, min_keys=["WER"],
+                meta={"acc": stage_stats["acc"]}, max_keys=["acc"],
             )
         elif stage == sb.Stage.TEST:
             self.hparams.train_logger.log_stats(
                 stats_meta={"Epoch loaded": self.hparams.epoch_counter.current},
                 test_stats=stage_stats,
             )
-            with open(self.hparams.wer_file, "w") as w:
-                self.wer_metric.write_stats(w)
+            with open(self.hparams.acc_file, "w") as w:
+                self.acc_metric.write_stats(w)
 
     def init_optimizers(self):
         "Initializes the wav2vec2 optimizer"
@@ -300,9 +316,9 @@ if __name__ == "__main__":
     )
 
     # Test
-    ssl_brain.hparams.wer_file = hparams["output_folder"] + "/wer_test.txt"
+    ssl_brain.hparams.acc_file = hparams["output_folder"] + "/acc_test.txt"
     ssl_brain.evaluate(
         test_data,
-        min_key="WER",
+        max_key="acc",
         test_loader_kwargs=hparams["test_dataloader_options"],
     )
