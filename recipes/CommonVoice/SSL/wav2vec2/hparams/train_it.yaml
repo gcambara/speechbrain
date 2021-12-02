@@ -10,13 +10,12 @@ output_folder: !ref results/wav2vec2_it/<seed>
 acc_file: !ref <output_folder>/acc.txt
 save_folder: !ref <output_folder>/save
 train_log: !ref <output_folder>/train_log.txt
-
-# URL for the biggest Fairseq english wav2vec2 model.
-#wav2vec2_hub: facebook/wav2vec2-large-it-voxpopuli
+use_tensorboard: True
+tensorboard_logs: !ref <output_folder>/logs/
 
 # Data files
-data_folder: /disks/md1-8T/users/b.gcr/datasets/it/commonvoice/cv-corpus-7.0-2021-07-21/it  # e.g, /localscratch/cv-corpus-5.1-2020-06-22/it
-train_tsv_file: !ref <data_folder>/train.tsv  # Standard CommonVoice .tsv files
+data_folder: /datasets/TALN/speech/it/commonvoice/cv-corpus-7.0-2021-07-21/it  # e.g, /localscratch/cv-corpus-5.1-2020-06-22/it
+train_tsv_file: !ref <data_folder>/train_short.tsv  # Standard CommonVoice .tsv files
 dev_tsv_file: !ref <data_folder>/dev.tsv  # Standard CommonVoice .tsv files
 test_tsv_file: !ref <data_folder>/test.tsv  # Standard CommonVoice .tsv files
 accented_letters: False
@@ -32,7 +31,6 @@ avoid_if_longer_than: 8.0
 
 # Training parameters
 number_of_epochs: 2
-lr: 0.0005
 lr_wav2vec: 0.0005
 sorting: ascending
 auto_mix_prec: False
@@ -58,10 +56,6 @@ test_dataloader_options:
 epoch_counter: !new:speechbrain.utils.epoch_loop.EpochCounter
     limit: !ref <number_of_epochs>
 
-#augmentation: !new:speechbrain.lobes.augment.TimeDomainSpecAugment
-#    sample_rate: !ref <sample_rate>
-#    speeds: [95, 100, 105]
-
 wav2vec2: !new:speechbrain.lobes.models.Wav2Vec2.Wav2Vec2
    #latent_extractor: None
    #vector_quantizer: None
@@ -69,50 +63,14 @@ wav2vec2: !new:speechbrain.lobes.models.Wav2Vec2.Wav2Vec2
    #feat_masker: None
    #loss_terms: None
 
-#wav2vec2: !new:speechbrain.lobes.models.huggingface_wav2vec.HuggingFaceWav2Vec2
-#    source: !ref <wav2vec2_hub>
-#    output_norm: True
-#    freeze: !ref <freeze_wav2vec>
-#    save_path: !ref <save_folder>/wav2vec2_checkpoint
-
-#####
-# Uncomment this block if you prefer to use a Fairseq pretrained model instead
-# of a HuggingFace one. Here, we provide an URL that is obtained from the
-# Fairseq github for the multilingual XLSR.
-#
-#wav2vec2_url: https://dl.fbaipublicfiles.com/fairseq/wav2vec/xlsr_53_56k.pt
-#wav2vec2: !new:speechbrain.lobes.models.fairseq_wav2vec.FairseqWav2Vec2
-#    pretrained_path: !ref <wav2vec2_url>
-#    output_norm: True
-#    freeze: False
-#    save_path: !ref <save_folder>/wav2vec2_checkpoint/model.pt
-#####
-
 modules:
    wav2vec2: !ref <wav2vec2>
 
-#modules:
-#    wav2vec2: !ref <wav2vec2>
-#    enc: !ref <enc>
-#    ctc_lin: !ref <ctc_lin>
-
 model: !new:torch.nn.ModuleList
     - [!ref <wav2vec2>]
-#    - [!ref <enc>, !ref <ctc_lin>]
-
-model_opt_class: !name:torch.optim.Adadelta
-    lr: !ref <lr>
-    rho: 0.95
-    eps: 1.e-8
 
 wav2vec_opt_class: !name:torch.optim.Adam
     lr: !ref <lr_wav2vec>
-
-lr_annealing_model: !new:speechbrain.nnet.schedulers.NewBobScheduler
-    initial_value: !ref <lr>
-    improvement_threshold: 0.0025
-    annealing_factor: 0.8
-    patient: 0
 
 lr_annealing_wav2vec: !new:speechbrain.nnet.schedulers.NewBobScheduler
     initial_value: !ref <lr_wav2vec>
@@ -125,14 +83,9 @@ checkpointer: !new:speechbrain.utils.checkpoints.Checkpointer
     recoverables:
         #wav2vec2: !ref <wav2vec2>
         model: !ref <model>
-        scheduler_model: !ref <lr_annealing_model>
+        #scheduler_model: !ref <lr_annealing_model>
         scheduler_wav2vec: !ref <lr_annealing_wav2vec>
         counter: !ref <epoch_counter>
 
 train_logger: !new:speechbrain.utils.train_logger.FileTrainLogger
     save_file: !ref <train_log>
-
-error_rate_computer: !name:speechbrain.utils.metric_stats.ErrorRateStats
-
-cer_computer: !name:speechbrain.utils.metric_stats.ErrorRateStats
-    split_tokens: True

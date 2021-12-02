@@ -107,7 +107,8 @@ class SSL(sb.core.Brain):
         """Computations needed for validation/test batches"""
         feat_masked, quant_feat, target, num_vars, prob_perplexity = self.compute_forward(batch, stage=stage)
         with torch.no_grad():
-            loss = self.compute_objectives(feat_masked, quant_feat, num_vars, prob_perplexity, target, batch, stage=stage)
+            loss_dict = self.compute_objectives(feat_masked, quant_feat, num_vars, prob_perplexity, target, batch, stage=stage)
+            loss = loss_dict['loss']
         return loss.detach()
 
     def on_stage_start(self, stage, epoch):
@@ -148,12 +149,14 @@ class SSL(sb.core.Brain):
 
         if stage == sb.Stage.TRAIN:
             self.train_stats = stage_stats
+            if self.hparams.use_tensorboard:
+                self.hparams.tensorboard_train_logger.log_stats(
+                    stats_meta={"Epoch loaded": self.hparams.epoch_counter.current}, 
+                    train_stats=self.train_stats,
+                )
 
         # Perform end-of-iteration things, like annealing, logging, etc.
         if stage == sb.Stage.VALID:
-            old_lr_model, new_lr_model = self.hparams.lr_annealing_model(
-                stage_stats["loss"]
-            )
             old_lr_wav2vec, new_lr_wav2vec = self.hparams.lr_annealing_wav2vec(
                 stage_stats["loss"]
             )
@@ -168,6 +171,12 @@ class SSL(sb.core.Brain):
                 train_stats=self.train_stats,
                 valid_stats=stage_stats,
             )
+            if self.hparams.use_tensorboard:
+                self.hparams.tensorboard_train_logger.log_stats(
+                    stats_meta={"Epoch loaded": self.hparams.epoch_counter.current}, 
+                    train_stats=self.train_stats,
+                    valid_stats=stage_stats,
+                )
             self.checkpointer.save_and_keep_only(
                 meta={"acc": stage_stats["acc"]}, max_keys=["acc"],
             )
@@ -176,6 +185,12 @@ class SSL(sb.core.Brain):
                 stats_meta={"Epoch loaded": self.hparams.epoch_counter.current},
                 test_stats=stage_stats,
             )
+            if self.hparams.use_tensorboard:
+                self.hparams.tensorboard_train_logger.log_stats(
+                    stats_meta={"Epoch loaded": self.hparams.epoch_counter.current}, 
+                    train_stats=self.train_stats,
+                    test_stats=stage_stats,
+                )
             with open(self.hparams.acc_file, "w") as w:
                 self.acc_metric.write_stats(w)
 
@@ -282,6 +297,13 @@ if __name__ == "__main__":
         hyperparams_to_save=hparams_file,
         overrides=overrides,
     )
+
+    if hparams["use_tensorboard"]:
+        from speechbrain.utils.train_logger import TensorboardLogger
+
+        hparams["tensorboard_train_logger"] = TensorboardLogger(
+            hparams["tensorboard_logs"]
+        )
 
     # Due to DDP, we do the preparation ONLY on the main python process
     run_on_main(

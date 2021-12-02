@@ -368,7 +368,3 @@ class Wav2Vec2(nn.Module):
         # target[:, :T-1, :] = 1
 
         return feat_with_distractors, q_with_distractors, target
-
-
-
-
