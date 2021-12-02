@@ -150,16 +150,21 @@ class W2V2FeatureMasker(nn.Module):
         x[mask] = self.mask_emb
         return x
 
-    def get_mask(self, input_shape):
+    def get_mask(self, input_shape, force_masking=True):
         ''' The same mask is applied to every sample in the batch '''
 
         batch_size, timesteps = input_shape[0], input_shape[1]
 
-        mask = torch.rand(timesteps - self.mask_len)
-        mask = torch.where(mask < self.mask_prob, True, False)
-        mask = torch.cat((mask, torch.zeros((self.mask_len), dtype=bool)), dim=0)
-        mask_indices = mask.nonzero()
-        mask_indices = mask_indices.squeeze(-1)
+        mask_indices = []
+        while len(mask_indices) == 0: # if force_masking is set, loop until a mask is generated
+            mask = torch.rand(timesteps - self.mask_len)
+            mask = torch.where(mask < self.mask_prob, True, False)
+            mask = torch.cat((mask, torch.zeros((self.mask_len), dtype=bool)), dim=0)
+            mask_indices = mask.nonzero()
+            mask_indices = mask_indices.squeeze(-1)
+
+            if not force_masking:
+                break
 
         for timestep in mask_indices:
             mask[timestep:timestep + self.mask_len] = True
@@ -304,7 +309,7 @@ class Wav2Vec2(nn.Module):
         return {'feat': feat, 'latent': latent, 'quant': quant, 'mask_indices': mask_indices}
 
     def arrange_distractors(self, feat, quant_feat, max_distractors=100):
-        batch_size, timesteps, _ = feat.shape
+        _, timesteps, _ = feat.shape
 
         if timesteps <= max_distractors - 1: # no need to randomly sample, we'll use all
             shifts = torch.arange(1, timesteps)
@@ -320,7 +325,7 @@ class Wav2Vec2(nn.Module):
         feat_with_distractors = torch.cat(feat_with_distractors, dim=1)
         q_with_distractors = torch.cat(q_with_distractors, dim=1)
 
-        target = torch.zeros(feat_with_distractors.shape[:2])
+        target = torch.zeros(feat_with_distractors.shape[:2]).to(feat.device)
         target[:, :timesteps] = 1
 
         # so, we have feat and q vectors, initially their positions

@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 import sys
 import torch
+import torch.nn.functional as F
 import logging
 import speechbrain as sb
 import torchaudio
@@ -27,6 +28,7 @@ class SSL(sb.core.Brain):
         batch = batch.to(self.device)
         wavs, wav_lens = batch.sig
         wavs, wav_lens = wavs.to(self.device), wav_lens.to(self.device)
+        wavs = wavs.unsqueeze(-1)
 
         if stage == sb.Stage.TRAIN:
             if hasattr(self.hparams, "augmentation"):
@@ -54,11 +56,11 @@ class SSL(sb.core.Brain):
         ids = batch.id
 
         loss_dict = self.modules.wav2vec2.loss(feat_masked, quant_feat, target, num_vars, prob_perplexity)
-        predictions = loss_dict['logits'] # this might be softmaxed
+        logits = loss_dict['logits']
 
         # Compute Accuracy using MetricStats
         self.acc_metric.append(
-            ids, predict=predictions, target=target, lengths=None
+            ids, predict=logits, target=target, lengths=None
         )
 
         if loss_dict['contrastive_loss']:
@@ -115,6 +117,9 @@ class SSL(sb.core.Brain):
         # Define function taking (prediction, target, length) for eval
         def accuracy_value(predict, target, lengths):
             """Computes Accuracy"""
+            predict = F.softmax(predict, dim=1) # logits to probabilities
+            predict = torch.log(predict) # probs to log-probs
+            predict = predict.unsqueeze(-1)
             nbr_correct, nbr_total = Accuracy(
                 predict, target, lengths
             )
