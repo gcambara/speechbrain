@@ -121,8 +121,6 @@ class SSL(sb.core.Brain):
             acc = torch.tensor([nbr_correct / nbr_total])
             return acc
 
-        def 
-
         self.acc_metric = sb.utils.metric_stats.MetricStats(
             metric=accuracy_value, n_jobs=1
         )
