@@ -134,10 +134,10 @@ class SSL(sb.core.Brain):
         # Compute/store important stats
         stage_stats = {"loss": stage_loss, "acc": self.acc_metric.summarize("average")}
 
-        if self.loss_metric_contrastive != []
+        if self.loss_metric_contrastive != []:
             avg_loss_contrastive = float(sum(self.loss_metric_contrastive) / len(self.loss_metric_contrastive))
             stage_stats['loss_contrastive'] = avg_loss_contrastive
-        if self.loss_metric_diversity != []
+        if self.loss_metric_diversity != []:
             avg_loss_diversity = float(sum(self.loss_metric_diversity) / len(self.loss_metric_diversity))
             stage_stats['loss_diversity'] = avg_loss_diversity
 
