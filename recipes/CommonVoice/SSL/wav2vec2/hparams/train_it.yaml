@@ -14,8 +14,8 @@ use_tensorboard: True
 tensorboard_logs: !ref <output_folder>/logs/
 
 # Data files
-data_folder: /datasets/TALN/speech/it/commonvoice/cv-corpus-7.0-2021-07-21/it  # e.g, /localscratch/cv-corpus-5.1-2020-06-22/it
-train_tsv_file: !ref <data_folder>/train_short.tsv  # Standard CommonVoice .tsv files
+data_folder: /disks/md1-8T/users/b.gcr/datasets/it/commonvoice/cv-corpus-7.0-2021-07-21/it  # e.g, /localscratch/cv-corpus-5.1-2020-06-22/it
+train_tsv_file: !ref <data_folder>/train.tsv  # Standard CommonVoice .tsv files
 dev_tsv_file: !ref <data_folder>/dev.tsv  # Standard CommonVoice .tsv files
 test_tsv_file: !ref <data_folder>/test.tsv  # Standard CommonVoice .tsv files
 accented_letters: False
@@ -30,7 +30,7 @@ skip_prep: False # Skip data preparation
 avoid_if_longer_than: 8.0
 
 # Training parameters
-number_of_epochs: 2
+number_of_epochs: 10
 lr_wav2vec: 0.0005
 sorting: ascending
 auto_mix_prec: False
@@ -40,7 +40,7 @@ ckpt_interval_minutes: 30 # save checkpoint every N min
 # With data_parallel batch_size is split into N jobs
 # With DDP batch_size is multiplied by N jobs
 # Must be 8 per GPU to fit 32GB of VRAM
-batch_size: 8
+batch_size: 4
 test_batch_size: 4
 
 dataloader_options:
@@ -72,11 +72,17 @@ model: !new:torch.nn.ModuleList
 wav2vec_opt_class: !name:torch.optim.Adam
     lr: !ref <lr_wav2vec>
 
-lr_annealing_wav2vec: !new:speechbrain.nnet.schedulers.NewBobScheduler
-    initial_value: !ref <lr_wav2vec>
-    improvement_threshold: 0.0025
-    annealing_factor: 0.9
-    patient: 0
+#lr_annealing_wav2vec: !new:speechbrain.nnet.schedulers.NewBobScheduler
+#    initial_value: !ref <lr_wav2vec>
+#    improvement_threshold: 0.0025
+#    annealing_factor: 0.9
+#    n_warmup_steps: 25000
+#    patient: 0
+
+lr_annealing_wav2vec: !new:speechbrain.nnet.schedulers.NoamScheduler
+    lr_initial: !ref <lr_wav2vec>
+    n_warmup_steps: 32000
+    model_size: 768
 
 checkpointer: !new:speechbrain.utils.checkpoints.Checkpointer
     checkpoints_dir: !ref <save_folder>
