@@ -207,7 +207,7 @@ class W2V2Quantizer(nn.Module):
                                               )
 
     def forward(self, x):
-        return self.quantizer(x)
+        return self.quantizer(x, produce_targets=False)
 
 class W2V2Loss(nn.Module):
     def __init__(self,

@@ -14,7 +14,7 @@ use_tensorboard: True
 tensorboard_logs: !ref <output_folder>/logs/
 
 # Data files
-data_folder: /disks/md1-8T/users/b.gcr/datasets/it/commonvoice/cv-corpus-7.0-2021-07-21/it  # e.g, /localscratch/cv-corpus-5.1-2020-06-22/it
+data_folder: /home/b.gcr/datasets/it/commonvoice/cv-corpus-7.0-2021-07-21/it  # e.g, /localscratch/cv-corpus-5.1-2020-06-22/it
 train_tsv_file: !ref <data_folder>/train.tsv  # Standard CommonVoice .tsv files
 dev_tsv_file: !ref <data_folder>/dev.tsv  # Standard CommonVoice .tsv files
 test_tsv_file: !ref <data_folder>/test.tsv  # Standard CommonVoice .tsv files
@@ -31,7 +31,7 @@ avoid_if_longer_than: 8.0
 
 # Training parameters
 number_of_epochs: 10
-lr_wav2vec: 0.0005
+lr_wav2vec: 0.2
 sorting: ascending
 auto_mix_prec: False
 sample_rate: 16000

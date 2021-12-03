@@ -46,7 +46,7 @@ class SSL(sb.core.Brain):
 
         feat_masked, quant_feat, target = self.modules.wav2vec2.arrange_distractors(feat_masked,
                                                                                     quant_feat,
-                                                                                    max_distractors=30)
+                                                                                    max_distractors=3)
 
         return feat_masked, quant_feat, target, num_vars, prob_perplexity
 
@@ -100,6 +100,16 @@ class SSL(sb.core.Brain):
                 self.wav2vec_optimizer.step()
 
             self.wav2vec_optimizer.zero_grad()
+            self.hparams.lr_annealing_wav2vec(self.wav2vec_optimizer)
+
+        self.hparams.tensorboard_train_logger.writer.add_scalar('loss/train_step', loss, 
+                                                                self.hparams.lr_annealing_wav2vec.n_steps)
+        self.hparams.tensorboard_train_logger.writer.add_scalar('loss_contrastive/train_step', loss_dict['contrastive_loss'], 
+                                                                self.hparams.lr_annealing_wav2vec.n_steps)
+        self.hparams.tensorboard_train_logger.writer.add_scalar('loss_diversity/train_step', loss_dict['diversity_loss'], 
+                                                                self.hparams.lr_annealing_wav2vec.n_steps)
+        self.hparams.tensorboard_train_logger.writer.add_scalar('prob_perplexity/train_step', prob_perplexity, 
+                                                                self.hparams.lr_annealing_wav2vec.n_steps)
 
         return loss.detach()
 
@@ -157,23 +167,22 @@ class SSL(sb.core.Brain):
 
         # Perform end-of-iteration things, like annealing, logging, etc.
         if stage == sb.Stage.VALID:
-            old_lr_wav2vec, new_lr_wav2vec = self.hparams.lr_annealing_wav2vec(
-                stage_stats["loss"]
-            )
-            sb.nnet.schedulers.update_learning_rate(
-                self.wav2vec_optimizer, new_lr_wav2vec
-            )
             self.hparams.train_logger.log_stats(
                 stats_meta={
                     "epoch": epoch,
-                    "lr_wav2vec": old_lr_wav2vec,
+                    "lr": self.hparams.lr_annealing_wav2vec.current_lr,
+                    "n_steps": self.hparams.lr_annealing_wav2vec.n_steps,
                 },
                 train_stats=self.train_stats,
                 valid_stats=stage_stats,
             )
             if self.hparams.use_tensorboard:
                 self.hparams.tensorboard_train_logger.log_stats(
-                    stats_meta={"Epoch loaded": self.hparams.epoch_counter.current}, 
+                    stats_meta={
+                    "epoch": epoch,
+                    "lr": self.hparams.lr_annealing_wav2vec.current_lr,
+                    "n_steps": self.hparams.lr_annealing_wav2vec.n_steps,
+                    }, 
                     train_stats=self.train_stats,
                     valid_stats=stage_stats,
                 )
