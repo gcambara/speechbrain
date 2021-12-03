@@ -256,7 +256,7 @@ class Wav2Vec2(nn.Module):
                  latent_projector=Linear(n_neurons=768, input_size=512),
                  positional_encoding=W2V2PositionalEncoding(),
                  context_extractor=W2V2ContextExtractorBase(),
-                 final_projector=Linear(n_neurons=768, input_size=256),
+                 final_projector=Linear(n_neurons=256, input_size=768),
                  vector_quantizer=W2V2Quantizer(),
                  feat_masker=W2V2FeatureMasker(),
                  loss=W2V2Loss(),

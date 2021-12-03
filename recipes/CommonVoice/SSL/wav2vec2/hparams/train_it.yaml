@@ -72,8 +72,6 @@ wav2vec2: !new:speechbrain.lobes.models.Wav2Vec2.Wav2Vec2
     vector_quantizer:    !ref <wav2vec2_vector_quantizer>
     feat_masker:         !ref <wav2vec2_feature_masker>
     loss:                !ref <wav2vec2_loss>
-    emb_dim:             768
-    target_dim:          256
 
 modules:
    wav2vec2: !ref <wav2vec2>
