@@ -102,8 +102,6 @@ class SSL(sb.core.Brain):
             self.wav2vec_optimizer.zero_grad()
             self.hparams.lr_annealing_wav2vec(self.wav2vec_optimizer)
 
-        print(self.hparams.lr_annealing_wav2vec.current_lr)
-
         self.hparams.tensorboard_train_logger.writer.add_scalar('loss/train_step', loss, 
                                                                 self.hparams.lr_annealing_wav2vec.n_steps)
         self.hparams.tensorboard_train_logger.writer.add_scalar('loss_contrastive/train_step', loss_dict['contrastive_loss'], 
