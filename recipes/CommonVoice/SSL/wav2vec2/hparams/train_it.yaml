@@ -56,12 +56,22 @@ test_dataloader_options:
 epoch_counter: !new:speechbrain.utils.epoch_loop.EpochCounter
     limit: !ref <number_of_epochs>
 
+wav2vec2_latent_extractor: !new:speechbrain.lobes.models.Wav2Vec2.W2V2LatentExtractor
+wav2vec2_context_extractor: !new:speechbrain.lobes.models.Wav2Vec2.W2V2ContextExtractorBase
+wav2vec2_positional_encoding: !new:speechbrain.lobes.models.Wav2Vec2.W2V2PositionalEncoding
+wav2vec2_feature_masker: !new:speechbrain.lobes.models.Wav2Vec2.W2V2FeatureMasker
+wav2vec2_vector_quantizer: !new:speechbrain.lobes.models.Wav2Vec2.W2V2Quantizer
+wav2vec2_loss: !new:speechbrain.lobes.models.Wav2Vec2.W2V2Loss
+    contrastive_weight: 0.1
+    diversity_weight: 100
+
 wav2vec2: !new:speechbrain.lobes.models.Wav2Vec2.Wav2Vec2
-   #latent_extractor: None
-   #vector_quantizer: None
-   #context_extractor: None
-   #feat_masker: None
-   #loss_terms: None
+    latent_extractor:    !ref <wav2vec2_latent_extractor>
+    context_extractor:   !ref <wav2vec2_context_extractor>
+    positional_encoding: !ref <wav2vec2_positional_encoding>
+    vector_quantizer:    !ref <wav2vec2_vector_quantizer>
+    feat_masker:         !ref <wav2vec2_feature_masker>
+    loss:                !ref <wav2vec2_loss>
 
 modules:
    wav2vec2: !ref <wav2vec2>
@@ -72,24 +82,15 @@ model: !new:torch.nn.ModuleList
 wav2vec_opt_class: !name:torch.optim.Adam
     lr: !ref <lr_wav2vec>
 
-#lr_annealing_wav2vec: !new:speechbrain.nnet.schedulers.NewBobScheduler
-#    initial_value: !ref <lr_wav2vec>
-#    improvement_threshold: 0.0025
-#    annealing_factor: 0.9
-#    n_warmup_steps: 25000
-#    patient: 0
-
 lr_annealing_wav2vec: !new:speechbrain.nnet.schedulers.NoamScheduler
     lr_initial: !ref <lr_wav2vec>
-    n_warmup_steps: 32000
+    n_warmup_steps: 100 #32000
     model_size: 768
 
 checkpointer: !new:speechbrain.utils.checkpoints.Checkpointer
     checkpoints_dir: !ref <save_folder>
     recoverables:
-        #wav2vec2: !ref <wav2vec2>
         model: !ref <model>
-        #scheduler_model: !ref <lr_annealing_model>
         scheduler_wav2vec: !ref <lr_annealing_wav2vec>
         counter: !ref <epoch_counter>
 

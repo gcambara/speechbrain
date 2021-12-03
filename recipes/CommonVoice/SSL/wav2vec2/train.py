@@ -110,6 +110,8 @@ class SSL(sb.core.Brain):
                                                                 self.hparams.lr_annealing_wav2vec.n_steps)
         self.hparams.tensorboard_train_logger.writer.add_scalar('prob_perplexity/train_step', prob_perplexity, 
                                                                 self.hparams.lr_annealing_wav2vec.n_steps)
+        self.hparams.tensorboard_train_logger.writer.add_scalar('lr/train_step', self.hparams.lr_annealing_wav2vec.current_lr, 
+                                                                self.hparams.lr_annealing_wav2vec.n_steps)
 
         return loss.detach()
 
