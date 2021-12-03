@@ -63,7 +63,7 @@ wav2vec2_feature_masker: !new:speechbrain.lobes.models.Wav2Vec2.W2V2FeatureMaske
 wav2vec2_vector_quantizer: !new:speechbrain.lobes.models.Wav2Vec2.W2V2Quantizer
 wav2vec2_loss: !new:speechbrain.lobes.models.Wav2Vec2.W2V2Loss
     contrastive_weight: 0.1
-    diversity_weight: 100
+    diversity_weight: 1.0
 
 wav2vec2: !new:speechbrain.lobes.models.Wav2Vec2.Wav2Vec2
     latent_extractor:    !ref <wav2vec2_latent_extractor>
