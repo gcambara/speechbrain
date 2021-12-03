@@ -187,7 +187,7 @@ class W2V2Quantizer(nn.Module):
                  temp=(2, 0.5, 0.999995),
                  groups=2,
                  combine_groups=False,
-                 vq_dim=768,
+                 vq_dim=256,
                  time_first=True,
                  activation=nn.GELU(),
                  weight_proj_depth=1,
@@ -256,20 +256,22 @@ class Wav2Vec2(nn.Module):
                  latent_projector=Linear(n_neurons=768, input_size=512),
                  positional_encoding=W2V2PositionalEncoding(),
                  context_extractor=W2V2ContextExtractorBase(),
+                 final_projector=Linear(n_neurons=768, input_size=256),
                  vector_quantizer=W2V2Quantizer(),
                  feat_masker=W2V2FeatureMasker(),
-                 loss=W2V2Loss()
+                 loss=W2V2Loss(),
                 ):
         super().__init__()
         self.latent_extractor = latent_extractor
         self.latent_projector = latent_projector
         self.positional_encoding = positional_encoding
         self.context_extractor = context_extractor
+        self.final_projector = final_projector
         self.vector_quantizer = vector_quantizer
         self.feat_masker = feat_masker # any function that returns a feat map masked, with the indices
                                        # a feat masker has the mask vector (learnable or not), and the
                                        # policy to select the indices to be masked
-        self.loss = loss # a loss function
+        self.loss = loss
 
     def forward(self, wav, apply_mask=False, return_latent=True):
         """Takes an input waveform and returns its corresponding wav2vec2.0 encoding.
@@ -305,6 +307,9 @@ class Wav2Vec2(nn.Module):
         if self.positional_encoding:
             feat += self.positional_encoding(feat)
         feat = self.context_extractor(feat)
+
+        if self.final_projector:
+            feat = self.final_projector(feat)
 
         return {'feat': feat, 'latent': latent, 'quant': quant, 'mask_indices': mask_indices}
 

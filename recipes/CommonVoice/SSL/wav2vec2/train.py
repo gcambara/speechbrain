@@ -19,7 +19,6 @@ Authors
 
 logger = logging.getLogger(__name__)
 
-
 # Define training procedure
 class SSL(sb.core.Brain):
     def compute_forward(self, batch, stage):
