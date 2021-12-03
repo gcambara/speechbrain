@@ -27,6 +27,7 @@ class SSL(sb.core.Brain):
         batch = batch.to(self.device)
         wavs, wav_lens = batch.sig
         wavs, wav_lens = wavs.to(self.device), wav_lens.to(self.device)
+        wavs = self.modules.normalize(wavs, wav_lens)
         wavs = wavs.unsqueeze(-1)
 
         if stage == sb.Stage.TRAIN:

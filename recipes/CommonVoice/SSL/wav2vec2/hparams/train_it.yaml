@@ -73,8 +73,12 @@ wav2vec2: !new:speechbrain.lobes.models.Wav2Vec2.Wav2Vec2
     feat_masker:         !ref <wav2vec2_feature_masker>
     loss:                !ref <wav2vec2_loss>
 
+normalize: !new:speechbrain.processing.features.InputNormalization
+    norm_type: sentence
+
 modules:
-   wav2vec2: !ref <wav2vec2>
+    normalize: !ref <normalize>
+    wav2vec2: !ref <wav2vec2>
 
 model: !new:torch.nn.ModuleList
     - [!ref <wav2vec2>]
@@ -85,7 +89,7 @@ wav2vec_opt_class: !name:torch.optim.Adam
 lr_annealing_wav2vec: !new:speechbrain.nnet.schedulers.NoamScheduler
     lr_initial: !ref <lr_wav2vec>
     n_warmup_steps: 100 #32000
-    model_size: 768
+    model_size: 256
 
 checkpointer: !new:speechbrain.utils.checkpoints.Checkpointer
     checkpoints_dir: !ref <save_folder>
