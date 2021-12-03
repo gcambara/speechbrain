@@ -46,7 +46,7 @@ class SSL(sb.core.Brain):
 
         feat_masked, quant_feat, target = self.modules.wav2vec2.arrange_distractors(feat_masked,
                                                                                     quant_feat,
-                                                                                    max_distractors=3)
+                                                                                    max_distractors=30)
 
         return feat_masked, quant_feat, target, num_vars, prob_perplexity
 
