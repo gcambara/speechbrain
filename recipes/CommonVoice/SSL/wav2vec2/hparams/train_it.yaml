@@ -31,7 +31,7 @@ avoid_if_longer_than: 8.0
 
 # Training parameters
 number_of_epochs: 10
-lr_wav2vec: 0.2
+lr_wav2vec: 0.08
 sorting: ascending
 auto_mix_prec: False
 sample_rate: 16000
@@ -62,8 +62,8 @@ wav2vec2_positional_encoding: !new:speechbrain.lobes.models.Wav2Vec2.W2V2Positio
 wav2vec2_feature_masker: !new:speechbrain.lobes.models.Wav2Vec2.W2V2FeatureMasker
 wav2vec2_vector_quantizer: !new:speechbrain.lobes.models.Wav2Vec2.W2V2Quantizer
 wav2vec2_loss: !new:speechbrain.lobes.models.Wav2Vec2.W2V2Loss
-    contrastive_weight: 0.1
-    diversity_weight: 1.0
+    contrastive_weight: 1.0
+    diversity_weight: 0.1
 
 wav2vec2: !new:speechbrain.lobes.models.Wav2Vec2.Wav2Vec2
     latent_extractor:    !ref <wav2vec2_latent_extractor>
@@ -88,7 +88,7 @@ wav2vec_opt_class: !name:torch.optim.Adam
 
 lr_annealing_wav2vec: !new:speechbrain.nnet.schedulers.NoamScheduler
     lr_initial: !ref <lr_wav2vec>
-    n_warmup_steps: 100 #32000
+    n_warmup_steps:  32000
     model_size: 256
 
 checkpointer: !new:speechbrain.utils.checkpoints.Checkpointer

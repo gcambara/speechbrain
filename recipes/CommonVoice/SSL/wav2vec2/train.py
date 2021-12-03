@@ -46,7 +46,7 @@ class SSL(sb.core.Brain):
 
         feat_masked, quant_feat, target = self.modules.wav2vec2.arrange_distractors(feat_masked,
                                                                                     quant_feat,
-                                                                                    max_distractors=100)
+                                                                                    max_distractors=50)
 
         return feat_masked, quant_feat, target, num_vars, prob_perplexity
 
@@ -101,6 +101,8 @@ class SSL(sb.core.Brain):
 
             self.wav2vec_optimizer.zero_grad()
             self.hparams.lr_annealing_wav2vec(self.wav2vec_optimizer)
+
+        print(self.hparams.lr_annealing_wav2vec.current_lr)
 
         self.hparams.tensorboard_train_logger.writer.add_scalar('loss/train_step', loss, 
                                                                 self.hparams.lr_annealing_wav2vec.n_steps)
