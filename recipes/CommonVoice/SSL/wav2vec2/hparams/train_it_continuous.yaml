@@ -63,7 +63,7 @@ wav2vec2_positional_encoding: !new:speechbrain.lobes.models.Wav2Vec2.W2V2Positio
 wav2vec2_feature_masker: !new:speechbrain.lobes.models.Wav2Vec2.W2V2FeatureMasker
     mask_dim: 768
     mask_prob: 0.065
-    mask_len: 5
+    mask_len: 10
 wav2vec2_vector_quantizer: null
 wav2vec2_target_projector: !new:speechbrain.nnet.linear.Linear
     n_neurons: 256
@@ -82,6 +82,8 @@ wav2vec2: !new:speechbrain.lobes.models.Wav2Vec2.Wav2Vec2
     feat_masker:         !ref <wav2vec2_feature_masker>
     loss:                !ref <wav2vec2_loss>
 
+num_negatives: 100
+cross_sample_negatives: 0
 #normalize: !new:speechbrain.processing.features.InputNormalization
 #    norm_type: sentence
 normalize: null

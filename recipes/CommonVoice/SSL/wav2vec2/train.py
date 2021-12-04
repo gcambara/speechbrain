@@ -41,26 +41,30 @@ class SSL(sb.core.Brain):
         feat_masked = feat[:, mask_indices, :]
 
         if quant:
-            target_feat = quant['x']
+            pos_target = quant['x']
             num_vars = quant['num_vars']
             prob_perplexity = quant['prob_perplexity']
         else:
-            target_feat = out['cont_target']
+            pos_target = out['cont_target']
             num_vars, prob_perplexity = None, None
 
-        feat_masked, target_feat, target = self.modules.wav2vec2.arrange_distractors(feat_masked,
-                                                                                     target_feat,
-                                                                                     max_distractors=30)
+        neg_target, _ = self.modules.wav2vec2.sample_negatives(pos_target,
+                                                               pos_target.size(1),
+                                                               padding_count=0,
+                                                               num_negatives=self.hparams.num_negatives,
+                                                               cross_sample_negatives=self.hparams.cross_sample_negatives
+                                                              )
 
-        return feat_masked, target_feat, target, num_vars, prob_perplexity
+        return feat_masked, pos_target, neg_target, num_vars, prob_perplexity
 
-    def compute_objectives(self, feat_masked, target_feat, num_vars, prob_perplexity, target, batch, stage):
+    def compute_objectives(self, feat_masked, pos_target, neg_target, num_vars, prob_perplexity, batch, stage):
         """Computes the loss given predictions and targets."""
 
         ids = batch.id
 
-        loss_dict = self.modules.wav2vec2.loss(feat_masked, target_feat, target, num_vars, prob_perplexity)
+        loss_dict = self.modules.wav2vec2.loss(feat_masked, pos_target, neg_target, num_vars, prob_perplexity)
         logits = loss_dict['logits']
+        target = loss_dict['target']
 
         # Compute Accuracy using MetricStats
         self.acc_metric.append(
@@ -81,8 +85,8 @@ class SSL(sb.core.Brain):
             self.wav2vec_optimizer.zero_grad()
 
             with torch.cuda.amp.autocast():
-                feat_masked, quant_feat, target, num_vars, prob_perplexity = self.compute_forward(batch, sb.Stage.TRAIN)
-                loss_dict = self.compute_objectives(feat_masked, quant_feat, num_vars, prob_perplexity, target, batch, sb.Stage.TRAIN)
+                feat_masked, pos_target, neg_target, num_vars, prob_perplexity = self.compute_forward(batch, sb.Stage.TRAIN)
+                loss_dict = self.compute_objectives(feat_masked, pos_target, neg_target, num_vars, prob_perplexity, batch, sb.Stage.TRAIN)
                 loss = loss_dict['loss']
 
             self.scaler.scale(loss).backward()
@@ -94,9 +98,9 @@ class SSL(sb.core.Brain):
 
             self.scaler.update()
         else:
-            feat_masked, quant_feat, target, num_vars, prob_perplexity = self.compute_forward(batch, sb.Stage.TRAIN)
+            feat_masked, pos_target, neg_target, num_vars, prob_perplexity = self.compute_forward(batch, sb.Stage.TRAIN)
 
-            loss_dict = self.compute_objectives(feat_masked, quant_feat, num_vars, prob_perplexity, target, batch, sb.Stage.TRAIN)
+            loss_dict = self.compute_objectives(feat_masked, pos_target, neg_target, num_vars, prob_perplexity, batch, sb.Stage.TRAIN)
             loss = loss_dict['loss']
             loss.backward()
 
@@ -124,9 +128,9 @@ class SSL(sb.core.Brain):
 
     def evaluate_batch(self, batch, stage):
         """Computations needed for validation/test batches"""
-        feat_masked, quant_feat, target, num_vars, prob_perplexity = self.compute_forward(batch, stage=stage)
+        feat_masked, pos_target, neg_target, num_vars, prob_perplexity = self.compute_forward(batch, stage=stage)
         with torch.no_grad():
-            loss_dict = self.compute_objectives(feat_masked, quant_feat, num_vars, prob_perplexity, target, batch, stage=stage)
+            loss_dict = self.compute_objectives(feat_masked, pos_target, neg_target, num_vars, prob_perplexity, batch, stage=stage)
             loss = loss_dict['loss']
         return loss.detach()
 
@@ -139,7 +143,8 @@ class SSL(sb.core.Brain):
             """Computes Accuracy"""
             predict = F.softmax(predict, dim=1) # logits to probabilities
             predict = torch.log(predict) # probs to log-probs
-            predict = predict.unsqueeze(-1)
+            predict = predict.unsqueeze(0)
+            target = target.unsqueeze(0)
             nbr_correct, nbr_total = Accuracy(
                 predict, target, lengths
             )

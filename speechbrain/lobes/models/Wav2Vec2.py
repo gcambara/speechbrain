@@ -226,10 +226,11 @@ class W2V2Loss(nn.Module):
         self.similarity = similarity
         self.temp = temp
 
-    def forward(self, feat, target_feat, target, num_vars, prob_perplexity):
+    def forward(self, feat, pos_target, neg_target, num_vars, prob_perplexity):
         loss = 0.0
         if self.contrastive_weight:
-            logits = self.similarity(feat, target_feat) / self.temp
+            logits = self.compute_logits(feat, pos_target, neg_target)
+            target = logits.new_zeros(logits.size(0), dtype=torch.long)
             contrastive_loss = self.contrastive_loss(logits, target)
             loss += self.contrastive_weight * contrastive_loss
         else:
@@ -243,7 +244,20 @@ class W2V2Loss(nn.Module):
 
         return {'loss': loss, 'contrastive_loss': contrastive_loss,
                 'diversity_loss': diversity_loss,
-                'logits': logits}
+                'logits': logits, 'target': target}
+
+    def compute_logits(self, feat, pos_target, neg_target):
+        pos_target = pos_target.unsqueeze(0)
+        target = torch.cat([pos_target, neg_target], dim=0)
+        logits = self.similarity(feat, target) / self.temp # (distr + 1, bsz, masked_feats)
+
+        neg_is_pos = (pos_target == neg_target).all(-1)
+        if neg_is_pos.any():
+            logits[1:][neg_is_pos] = float("-inf")
+
+        logits = logits.transpose(0, 2).reshape(-1, logits.size(0)) # (bsz x masked_feats, distr + 1)
+
+        return logits
 
 class Wav2Vec2(nn.Module):
     """This lobe is a wav2vec2.0 implementation.
@@ -326,63 +340,121 @@ class Wav2Vec2(nn.Module):
         return {'feat': feat, 'latent': latent, 'quant': quant,
                  'cont_target': cont_target, 'mask_indices': mask_indices}
 
-    def arrange_distractors(self, feat, target_feat, max_distractors=100):
-        _, timesteps, _ = feat.shape
+    # def arrange_distractors(self, feat, target_feat, max_distractors=100):
+    #     _, timesteps, _ = feat.shape
 
-        if timesteps <= max_distractors - 1: # no need to randomly sample, we'll use all
-            shifts = torch.arange(1, timesteps)
+    #     if timesteps <= max_distractors - 1: # no need to randomly sample, we'll use all
+    #         shifts = torch.arange(1, timesteps)
+    #     else:
+    #         shifts = torch.randperm(timesteps - 1) + 1
+    #         shifts = shifts[:max_distractors]
+
+    #     feat_with_distractors = [feat]
+    #     target_with_distractors = [target_feat]
+    #     for shift in shifts:
+    #         feat_with_distractors.append(torch.roll(feat, shifts=shift.item(), dims=1))
+    #         target_with_distractors.append(target_feat)
+    #     feat_with_distractors = torch.cat(feat_with_distractors, dim=1)
+    #     target_with_distractors = torch.cat(target_with_distractors, dim=1)
+
+    #     target = torch.zeros(feat_with_distractors.shape[:2]).to(feat.device)
+    #     target[:, :timesteps] = 1
+
+    #     # so, we have feat and q vectors, initially their positions
+    #     # should match each other. let's consider we have
+    #     # T = 4 timesteps
+    #     # feat = [a, b, c, d]
+    #     # q    = [a, b, c, d]
+
+    #     # if the amount of timesteps is less than distractors
+    #     # we'll just use as many timesteps we have
+
+    #     # if not, we will cut to distractors
+
+    #     # we will roll the feat vector to have all the combinations
+    #     # feat = [a, b, c, d] [b, c, d, a] [c, d, a, b] [d, a, b, c]
+    #     # q    = [a, b, c, d] [a, b, c, d] [a, b, c, d] [a, b, c, d]
+
+    #     # so, we generate a shifts vector with random integers
+    #     # shifts = torch.randperm(T - 1) = torch.randperm(3)
+    #     # shifts = [0, 2, 1]
+    #     # shift 0 is the same, so we repeat the positive, so just sum 1
+    #     # shifts = torch.randperm(T - 1) + 1
+    #     # shifts = shifts[:K]
+    #     # shifts = [1, 3, 2]
+
+    #     # for the case under the max or equal number of distractors
+    #     # simply arange
+    #     # shifts = torch.arange(1, T)
+    #     # shifts = [1, 2, 3]
+
+    #     # now create tensor_buffer = [feat]
+    #     # for shift in shifts:
+    #     #   tensor_buffer.append(torch.roll(feat, shifts=shift))
+    #     # feat_w_distractors = torch.cat(tensor_buffer)
+    #     # q_w_distractors = q.expand(q.size(0), q.size(1)**2)
+
+    #     # generate target vector as
+    #     # target = [1, 1, 1, 1] [0, 0, 0, 0] [0, 0, 0, 0] [0, 0, 0, 0]
+    #     # target = torch.zeros(q.shape)
+    #     # target[:, :T-1, :] = 1
+
+    #     return feat_with_distractors, target_with_distractors, target
+
+    def sample_negatives(self, y, num, padding_count=None, num_negatives=100, cross_sample_negatives=0):
+        if num_negatives == 0 and cross_sample_negatives == 0:
+            return y.new(0)
+
+        bsz, tsz, fsz = y.shape
+        y = y.view(-1, fsz)  # BTC => (BxT)C
+
+        # FIXME: what happens if padding_count is specified?
+        cross_high = tsz * bsz
+        high = tsz - (padding_count or 0)
+        with torch.no_grad():
+            assert high > 1, f"{bsz,tsz,fsz}"
+
+            if num_negatives > 0:
+                tszs = (
+                    torch.arange(num)
+                    .unsqueeze(-1)
+                    .expand(-1, num_negatives)
+                    .flatten()
+                )
+
+                neg_idxs = torch.randint(
+                    low=0, high=high - 1, size=(bsz, num_negatives * num)
+                )
+                neg_idxs[neg_idxs >= tszs] += 1
+
+            if cross_sample_negatives > 0:
+                tszs = (
+                    torch.arange(num) # gcambara: this can be buffered and reused
+                    .unsqueeze(-1)
+                    .expand(-1, cross_sample_negatives)
+                    .flatten()
+                )
+
+                cross_neg_idxs = torch.randint(
+                    low=0,
+                    high=cross_high - 1,
+                    size=(bsz, cross_sample_negatives * num),
+                )
+                cross_neg_idxs[cross_neg_idxs >= tszs] += 1
+
+        if num_negatives > 0:
+            for i in range(1, bsz):
+                neg_idxs[i] += i * high
         else:
-            shifts = torch.randperm(timesteps - 1) + 1
-            shifts = shifts[:max_distractors]
+            neg_idxs = cross_neg_idxs
 
-        feat_with_distractors = [feat]
-        target_with_distractors = [target_feat]
-        for shift in shifts:
-            feat_with_distractors.append(torch.roll(feat, shifts=shift.item(), dims=1))
-            target_with_distractors.append(target_feat)
-        feat_with_distractors = torch.cat(feat_with_distractors, dim=1)
-        target_with_distractors = torch.cat(target_with_distractors, dim=1)
+        if cross_sample_negatives > 0 and num_negatives > 0:
+            neg_idxs = torch.cat([neg_idxs, cross_neg_idxs], dim=1)
 
-        target = torch.zeros(feat_with_distractors.shape[:2]).to(feat.device)
-        target[:, :timesteps] = 1
-
-        # so, we have feat and q vectors, initially their positions
-        # should match each other. let's consider we have
-        # T = 4 timesteps
-        # feat = [a, b, c, d]
-        # q    = [a, b, c, d]
-
-        # if the amount of timesteps is less than distractors
-        # we'll just use as many timesteps we have
-
-        # if not, we will cut to distractors
-
-        # we will roll the feat vector to have all the combinations
-        # feat = [a, b, c, d] [b, c, d, a] [c, d, a, b] [d, a, b, c]
-        # q    = [a, b, c, d] [a, b, c, d] [a, b, c, d] [a, b, c, d]
-
-        # so, we generate a shifts vector with random integers
-        # shifts = torch.randperm(T - 1) = torch.randperm(3)
-        # shifts = [0, 2, 1]
-        # shift 0 is the same, so we repeat the positive, so just sum 1
-        # shifts = torch.randperm(T - 1) + 1
-        # shifts = shifts[:K]
-        # shifts = [1, 3, 2]
-
-        # for the case under the max or equal number of distractors
-        # simply arange
-        # shifts = torch.arange(1, T)
-        # shifts = [1, 2, 3]
-
-        # now create tensor_buffer = [feat]
-        # for shift in shifts:
-        #   tensor_buffer.append(torch.roll(feat, shifts=shift))
-        # feat_w_distractors = torch.cat(tensor_buffer)
-        # q_w_distractors = q.expand(q.size(0), q.size(1)**2)
-
-        # generate target vector as
-        # target = [1, 1, 1, 1] [0, 0, 0, 0] [0, 0, 0, 0] [0, 0, 0, 0]
-        # target = torch.zeros(q.shape)
-        # target[:, :T-1, :] = 1
-
-        return feat_with_distractors, target_with_distractors, target
+        negs = y[neg_idxs.view(-1)]
+        negs = negs.view(
+            bsz, num, num_negatives + cross_sample_negatives, fsz
+        ).permute(
+            2, 0, 1, 3
+        )  # to NxBxTxC
+        return negs, neg_idxs
