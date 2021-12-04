@@ -23,7 +23,6 @@ logger = logging.getLogger(__name__)
 class SSL(sb.core.Brain):
     def compute_forward(self, batch, stage):
         """Forward computations from the waveform batches to the output probabilities."""
-
         batch = batch.to(self.device)
         wavs, wav_lens = batch.sig
         wavs, wav_lens = wavs.to(self.device), wav_lens.to(self.device)
@@ -38,24 +37,28 @@ class SSL(sb.core.Brain):
         out = self.modules.wav2vec2(wavs, apply_mask=True, return_latent=False)
 
         feat, quant, mask_indices = out['feat'], out['quant'], out['mask_indices']
-
         feat_masked = feat[:, mask_indices, :]
-        quant_feat = quant['x']
-        num_vars = quant['num_vars']
-        prob_perplexity = quant['prob_perplexity']
 
-        feat_masked, quant_feat, target = self.modules.wav2vec2.arrange_distractors(feat_masked,
-                                                                                    quant_feat,
-                                                                                    max_distractors=50)
+        if quant:
+            target_feat = quant['x']
+            num_vars = quant['num_vars']
+            prob_perplexity = quant['prob_perplexity']
+        else:
+            target_feat = out['cont_target']
+            num_vars, prob_perplexity = None, None
 
-        return feat_masked, quant_feat, target, num_vars, prob_perplexity
+        feat_masked, target_feat, target = self.modules.wav2vec2.arrange_distractors(feat_masked,
+                                                                                     target_feat,
+                                                                                     max_distractors=30)
 
-    def compute_objectives(self, feat_masked, quant_feat, num_vars, prob_perplexity, target, batch, stage):
+        return feat_masked, target_feat, target, num_vars, prob_perplexity
+
+    def compute_objectives(self, feat_masked, target_feat, num_vars, prob_perplexity, target, batch, stage):
         """Computes the loss given predictions and targets."""
 
         ids = batch.id
 
-        loss_dict = self.modules.wav2vec2.loss(feat_masked, quant_feat, target, num_vars, prob_perplexity)
+        loss_dict = self.modules.wav2vec2.loss(feat_masked, target_feat, target, num_vars, prob_perplexity)
         logits = loss_dict['logits']
 
         # Compute Accuracy using MetricStats
@@ -102,14 +105,17 @@ class SSL(sb.core.Brain):
             self.wav2vec_optimizer.zero_grad()
             self.hparams.lr_annealing_wav2vec(self.wav2vec_optimizer)
 
-        self.hparams.tensorboard_train_logger.writer.add_scalar('loss/train_step', loss, 
+        self.hparams.tensorboard_train_logger.writer.add_scalar('loss/train_step', loss.detach(), 
                                                                 self.hparams.lr_annealing_wav2vec.n_steps)
-        self.hparams.tensorboard_train_logger.writer.add_scalar('loss_contrastive/train_step', loss_dict['contrastive_loss'], 
-                                                                self.hparams.lr_annealing_wav2vec.n_steps)
-        self.hparams.tensorboard_train_logger.writer.add_scalar('loss_diversity/train_step', loss_dict['diversity_loss'], 
-                                                                self.hparams.lr_annealing_wav2vec.n_steps)
-        self.hparams.tensorboard_train_logger.writer.add_scalar('prob_perplexity/train_step', prob_perplexity, 
-                                                                self.hparams.lr_annealing_wav2vec.n_steps)
+        if loss_dict['contrastive_loss']:
+            self.hparams.tensorboard_train_logger.writer.add_scalar('loss_contrastive/train_step', loss_dict['contrastive_loss'].detach(), 
+                                                                    self.hparams.lr_annealing_wav2vec.n_steps)
+        if loss_dict['diversity_loss']:
+            self.hparams.tensorboard_train_logger.writer.add_scalar('loss_diversity/train_step', loss_dict['diversity_loss'].detach(), 
+                                                                    self.hparams.lr_annealing_wav2vec.n_steps)
+        if prob_perplexity:
+            self.hparams.tensorboard_train_logger.writer.add_scalar('prob_perplexity/train_step', prob_perplexity, 
+                                                                    self.hparams.lr_annealing_wav2vec.n_steps)
         self.hparams.tensorboard_train_logger.writer.add_scalar('lr/train_step', self.hparams.lr_annealing_wav2vec.current_lr, 
                                                                 self.hparams.lr_annealing_wav2vec.n_steps)
 

@@ -224,10 +224,10 @@ class W2V2Loss(nn.Module):
         self.similarity = similarity
         self.temp = temp
 
-    def forward(self, feat, quant_feat, target, num_vars, prob_perplexity):
+    def forward(self, feat, target_feat, target, num_vars, prob_perplexity):
         loss = 0.0
         if self.contrastive_weight:
-            logits = self.similarity(feat, quant_feat) / self.temp
+            logits = self.similarity(feat, target_feat) / self.temp
             contrastive_loss = self.contrastive_loss(logits, target)
             loss += self.contrastive_weight * contrastive_loss
         else:
@@ -257,6 +257,7 @@ class Wav2Vec2(nn.Module):
                  positional_encoding=W2V2PositionalEncoding(),
                  context_extractor=W2V2ContextExtractorBase(),
                  final_projector=Linear(n_neurons=256, input_size=768),
+                 target_projector=Linear(n_neurons=256, input_size=256),
                  vector_quantizer=W2V2Quantizer(),
                  feat_masker=W2V2FeatureMasker(),
                  loss=W2V2Loss(),
@@ -267,6 +268,7 @@ class Wav2Vec2(nn.Module):
         self.positional_encoding = positional_encoding
         self.context_extractor = context_extractor
         self.final_projector = final_projector
+        self.target_projector = target_projector
         self.vector_quantizer = vector_quantizer
         self.feat_masker = feat_masker # any function that returns a feat map masked, with the indices
                                        # a feat masker has the mask vector (learnable or not), and the
@@ -290,8 +292,16 @@ class Wav2Vec2(nn.Module):
 
             if self.vector_quantizer:
                 quant = self.vector_quantizer(unmasked_feats)
+
+                if self.target_projector:
+                    quant['x'] = self.target_projector(quant['x'])
+                cont_target = None
+            else:
+                if self.target_projector:
+                    cont_target = self.target_projector(unmasked_feats)
+                quant = None
         else:
-            mask_indices, quant = None, None
+            mask_indices, quant, cont_target = None, None, None
 
         if self.latent_projector:
             feat = self.latent_projector(feat)
@@ -311,9 +321,10 @@ class Wav2Vec2(nn.Module):
         if self.final_projector:
             feat = self.final_projector(feat)
 
-        return {'feat': feat, 'latent': latent, 'quant': quant, 'mask_indices': mask_indices}
+        return {'feat': feat, 'latent': latent, 'quant': quant,
+                 'cont_target': cont_target, 'mask_indices': mask_indices}
 
-    def arrange_distractors(self, feat, quant_feat, max_distractors=100):
+    def arrange_distractors(self, feat, target_feat, max_distractors=100):
         _, timesteps, _ = feat.shape
 
         if timesteps <= max_distractors - 1: # no need to randomly sample, we'll use all
@@ -323,12 +334,12 @@ class Wav2Vec2(nn.Module):
             shifts = shifts[:max_distractors]
 
         feat_with_distractors = [feat]
-        q_with_distractors = [quant_feat]
+        target_with_distractors = [target_feat]
         for shift in shifts:
             feat_with_distractors.append(torch.roll(feat, shifts=shift.item(), dims=1))
-            q_with_distractors.append(quant_feat)
+            target_with_distractors.append(target_feat)
         feat_with_distractors = torch.cat(feat_with_distractors, dim=1)
-        q_with_distractors = torch.cat(q_with_distractors, dim=1)
+        target_with_distractors = torch.cat(target_with_distractors, dim=1)
 
         target = torch.zeros(feat_with_distractors.shape[:2]).to(feat.device)
         target[:, :timesteps] = 1
@@ -372,4 +383,4 @@ class Wav2Vec2(nn.Module):
         # target = torch.zeros(q.shape)
         # target[:, :T-1, :] = 1
 
-        return feat_with_distractors, q_with_distractors, target
+        return feat_with_distractors, target_with_distractors, target

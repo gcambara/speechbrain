@@ -60,6 +60,9 @@ wav2vec2_latent_extractor: !new:speechbrain.lobes.models.Wav2Vec2.W2V2LatentExtr
 wav2vec2_context_extractor: !new:speechbrain.lobes.models.Wav2Vec2.W2V2ContextExtractorBase
 wav2vec2_positional_encoding: !new:speechbrain.lobes.models.Wav2Vec2.W2V2PositionalEncoding
 wav2vec2_feature_masker: !new:speechbrain.lobes.models.Wav2Vec2.W2V2FeatureMasker
+    mask_dim: 768
+    mask_prob: 0.065
+    mask_len: 2
 wav2vec2_vector_quantizer: !new:speechbrain.lobes.models.Wav2Vec2.W2V2Quantizer
 wav2vec2_loss: !new:speechbrain.lobes.models.Wav2Vec2.W2V2Loss
     contrastive_weight: 1.0
