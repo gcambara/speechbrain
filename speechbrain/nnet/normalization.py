@@ -361,3 +361,65 @@ class InstanceNorm2d(nn.Module):
         x_n = x_n.transpose(1, -1)
 
         return x_n
+
+class GroupNorm(nn.Module):
+    """Applies group normalization to the input tensor.
+
+    Arguments
+    ---------
+    input_size : int
+        The expected size of the input. Alternatively, use ``input_shape``.
+    input_shape : tuple
+        The expected shape of the input.
+    num_groups : int
+        Number of groups to separate the channels into.
+    eps : float
+        This value is added to std deviation estimation to improve the numerical
+        stability.
+    affine : bool
+         A boolean value that when set to True, this module has learnable per-channel
+         affine parameters initialized to ones (for weights) and zeros (for biases).
+    Example
+    -------
+    >>> input = torch.randn(100, 101, 512)
+    >>> norm = GroupNorm(input_size=512, num_groups=512)
+    >>> output = norm(input)
+    >>> output.shape
+    torch.Size([100, 101, 512])
+    """
+
+    def __init__(
+        self,
+        input_size=None,
+        input_shape=None,
+        num_groups=None,
+        eps=1e-05,
+        affine=True,
+    ):
+        super().__init__()
+        self.eps = eps
+        self.affine = affine
+
+        if input_shape is not None:
+            input_size = input_shape[2:]
+
+        self.norm = torch.nn.GroupNorm(
+            num_groups,
+            input_size,
+            eps=self.eps,
+            affine=self.affine,
+        )
+
+    def forward(self, x):
+        """Returns the normalized input tensor.
+
+        Arguments
+        ---------
+        x : torch.Tensor (batch, time, channels)
+            input to normalize. 3d or 4d tensors are expected.
+        """
+        x = x.transpose(-1, 1)
+        x_n = self.norm(x)
+        x_n = x_n.transpose(1, -1)
+
+        return x_n
