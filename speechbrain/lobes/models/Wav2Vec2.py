@@ -9,6 +9,7 @@ Authors
 
 import collections
 import math
+import numpy as np
 import torch
 import torch.nn.functional as F
 from torch import nn
@@ -86,7 +87,8 @@ class W2V2ContextExtractorBase(nn.Module):
                  d_model=[768] * 12,
                  dropout=[0.1] * 12,
                  activation=[nn.GELU] * 12,
-                 normalize_before=[False] * 12
+                 normalize_before=[False] * 12,
+                 layer_drop=0.05
                  ):
 
         super().__init__()
@@ -102,10 +104,13 @@ class W2V2ContextExtractorBase(nn.Module):
                                                                normalize_before=normalize_before[i])
 
         self.context_extractor = nn.Sequential(layers)
+        self.layer_drop = layer_drop
 
     def forward(self, x):
         for layer in self.context_extractor:
-            x = layer(x)[0]
+            layer_drop_prob = np.random.random()
+            if not self.training or (layer_drop_prob > self.layer_drop):
+                x = layer(x)[0]
         return x
 
 class W2V2ContextExtractorLarge(nn.Module):
