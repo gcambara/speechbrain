@@ -54,6 +54,28 @@ class W2V2LatentExtractor(nn.Module):
     def forward(self, x):
         return self.latent_extractor(x)
 
+class W2V2LatentProjector(nn.Module):
+    """wav2vec2.0 default latent projector
+    """
+
+    def __init__(self,
+                 n_neurons=768,
+                 input_size=512,
+                 dropout=0.1,
+                 ):
+        super().__init__()
+        self.linear = Linear(n_neurons=n_neurons, input_size=input_size)
+        if dropout > 0.0:
+            self.dropout = nn.Dropout(dropout)
+        else:
+            self.dropout = None
+
+    def forward(self, x):
+        x = self.linear(x)
+        if self.dropout:
+            x = self.dropout(x)
+        return x
+
 class W2V2ContextExtractorBase(nn.Module):
     """wav2vec2.0 default context extractor, inits as BASE
     """
@@ -197,7 +219,8 @@ class W2V2Quantizer(nn.Module):
                  time_first=True,
                  activation=nn.GELU(),
                  weight_proj_depth=1,
-                 weight_proj_factor=3
+                 weight_proj_factor=3,
+                 input_dropout=0.1
                  ):
         super().__init__()
         self.quantizer = GumbelVectorQuantizer(dim=dim,
@@ -212,7 +235,14 @@ class W2V2Quantizer(nn.Module):
                                                weight_proj_factor=weight_proj_factor,
                                               )
 
+        if input_dropout > 0.0:
+            self.dropout = nn.Dropout(input_dropout)
+        else:
+            self.dropout = None
+
     def forward(self, x):
+        if self.dropout:
+            x = self.dropout(x)
         return self.quantizer(x, produce_targets=False)
 
 class W2V2Loss(nn.Module):
@@ -273,7 +303,7 @@ class Wav2Vec2(nn.Module):
 
     def __init__(self,
                  latent_extractor=W2V2LatentExtractor(),
-                 latent_projector=Linear(n_neurons=768, input_size=512),
+                 latent_projector=W2V2LatentProjector(),
                  positional_encoding=W2V2PositionalEncoding(),
                  context_extractor=W2V2ContextExtractorBase(),
                  final_projector=Linear(n_neurons=256, input_size=768),
@@ -331,7 +361,7 @@ class Wav2Vec2(nn.Module):
             latent = None
 
         if apply_mask:
-            feat = self.feat_masker(feat, mask) # mask
+            feat = self.feat_masker(feat, mask)
 
         if self.positional_encoding:
             feat += self.positional_encoding(feat)
@@ -342,67 +372,6 @@ class Wav2Vec2(nn.Module):
 
         return {'feat': feat, 'latent': latent, 'quant': quant,
                  'cont_target': cont_target, 'mask_indices': mask_indices}
-
-    # def arrange_distractors(self, feat, target_feat, max_distractors=100):
-    #     _, timesteps, _ = feat.shape
-
-    #     if timesteps <= max_distractors - 1: # no need to randomly sample, we'll use all
-    #         shifts = torch.arange(1, timesteps)
-    #     else:
-    #         shifts = torch.randperm(timesteps - 1) + 1
-    #         shifts = shifts[:max_distractors]
-
-    #     feat_with_distractors = [feat]
-    #     target_with_distractors = [target_feat]
-    #     for shift in shifts:
-    #         feat_with_distractors.append(torch.roll(feat, shifts=shift.item(), dims=1))
-    #         target_with_distractors.append(target_feat)
-    #     feat_with_distractors = torch.cat(feat_with_distractors, dim=1)
-    #     target_with_distractors = torch.cat(target_with_distractors, dim=1)
-
-    #     target = torch.zeros(feat_with_distractors.shape[:2]).to(feat.device)
-    #     target[:, :timesteps] = 1
-
-    #     # so, we have feat and q vectors, initially their positions
-    #     # should match each other. let's consider we have
-    #     # T = 4 timesteps
-    #     # feat = [a, b, c, d]
-    #     # q    = [a, b, c, d]
-
-    #     # if the amount of timesteps is less than distractors
-    #     # we'll just use as many timesteps we have
-
-    #     # if not, we will cut to distractors
-
-    #     # we will roll the feat vector to have all the combinations
-    #     # feat = [a, b, c, d] [b, c, d, a] [c, d, a, b] [d, a, b, c]
-    #     # q    = [a, b, c, d] [a, b, c, d] [a, b, c, d] [a, b, c, d]
-
-    #     # so, we generate a shifts vector with random integers
-    #     # shifts = torch.randperm(T - 1) = torch.randperm(3)
-    #     # shifts = [0, 2, 1]
-    #     # shift 0 is the same, so we repeat the positive, so just sum 1
-    #     # shifts = torch.randperm(T - 1) + 1
-    #     # shifts = shifts[:K]
-    #     # shifts = [1, 3, 2]
-
-    #     # for the case under the max or equal number of distractors
-    #     # simply arange
-    #     # shifts = torch.arange(1, T)
-    #     # shifts = [1, 2, 3]
-
-    #     # now create tensor_buffer = [feat]
-    #     # for shift in shifts:
-    #     #   tensor_buffer.append(torch.roll(feat, shifts=shift))
-    #     # feat_w_distractors = torch.cat(tensor_buffer)
-    #     # q_w_distractors = q.expand(q.size(0), q.size(1)**2)
-
-    #     # generate target vector as
-    #     # target = [1, 1, 1, 1] [0, 0, 0, 0] [0, 0, 0, 0] [0, 0, 0, 0]
-    #     # target = torch.zeros(q.shape)
-    #     # target[:, :T-1, :] = 1
-
-    #     return feat_with_distractors, target_with_distractors, target
 
     def sample_negatives(self, y, num, padding_count=None, num_negatives=100, cross_sample_negatives=0):
         if num_negatives == 0 and cross_sample_negatives == 0:
