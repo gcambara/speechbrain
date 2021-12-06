@@ -213,7 +213,7 @@ class W2V2Quantizer(nn.Module):
 
 class W2V2Loss(nn.Module):
     def __init__(self,
-                 contrastive_loss=nn.CrossEntropyLoss(reduction='mean'),
+                 contrastive_loss=nn.CrossEntropyLoss(reduction='sum'),
                  contrastive_weight=1.0,
                  diversity_weight=0.1,
                  similarity=nn.CosineSimilarity(dim=-1),
@@ -299,7 +299,6 @@ class Wav2Vec2(nn.Module):
         wav : torch.Tensor (signal)
             A batch of audio signals to transform to features.
         """
-
         feat = self.latent_extractor(wav)
 
         if apply_mask:
