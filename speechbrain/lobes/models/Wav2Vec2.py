@@ -27,7 +27,7 @@ class W2V2LatentExtractor(nn.Module):
                  out_channels=[512] * 7,
                  kernel_size=[10, 3, 3, 3, 3, 2, 2],
                  stride=[5, 2, 2, 2, 2, 2, 2],
-                 #norms=[LayerNorm(input_size=512)] * 7,
+                 bias=[False] * 7,
                  norms=[GroupNorm(num_groups=512, input_size=512, affine=True)] + [None] * 6,
                  acts=[nn.GELU()] * 7
                  ):
@@ -38,7 +38,11 @@ class W2V2LatentExtractor(nn.Module):
         blocks = collections.OrderedDict()
         for i in range(len(in_channels)):
             conv_block = collections.OrderedDict()
-            conv_block[f'conv1d_{i}'] = Conv1d(out_channels=out_channels[i], kernel_size=kernel_size[i], in_channels=in_channels[i], stride=stride[i])
+            conv_block[f'conv1d_{i}'] = Conv1d(out_channels=out_channels[i],
+                                               kernel_size=kernel_size[i],
+                                               in_channels=in_channels[i],
+                                               stride=stride[i],
+                                               bias=bias[i])
             if norms[i]:
                 conv_block[f'norm_{i}'] = norms[i]
             conv_block[f'activation_{i}'] = acts[i]
