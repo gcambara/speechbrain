@@ -31,8 +31,7 @@ avoid_if_longer_than: 8.0
 
 # Training parameters
 number_of_epochs: 10
-#lr_wav2vec: 0.08
-lr_wav2vec: 0.005
+lr_wav2vec: 1.43 # lr * sqrt(emb_dim)
 sorting: random
 auto_mix_prec: False
 sample_rate: 16000
@@ -96,7 +95,7 @@ wav2vec_opt_class: !name:torch.optim.Adam
 
 lr_annealing_wav2vec: !new:speechbrain.nnet.schedulers.NoamScheduler
     lr_initial: !ref <lr_wav2vec>
-    n_warmup_steps: 22000
+    n_warmup_steps: 32000
     model_size: 256
 
 checkpointer: !new:speechbrain.utils.checkpoints.Checkpointer

@@ -223,6 +223,19 @@ class SSL(sb.core.Brain):
             self.modules.wav2vec2.parameters()
         )
 
+        if self.hparams.lr_annealing_wav2vec.n_warmup_steps > 0:
+            self.wav2vec_optimizer.param_groups[0]["lr"] = 0.0
+
+        # Uncomment this to quickly check lrs
+        # lrs = [self.wav2vec_optimizer.param_groups[0]["lr"]]
+        # for i in range(self.hparams.lr_annealing_wav2vec.n_warmup_steps + 1):
+        #     self.hparams.lr_annealing_wav2vec(self.wav2vec_optimizer)
+        #     lrs.append(self.wav2vec_optimizer.param_groups[0]["lr"])
+        #     if i == 10:
+        #         print(lrs)
+        # print(max(lrs))
+        # print(min(lrs))
+
         if self.checkpointer is not None:
             self.checkpointer.add_recoverable(
                 "wav2vec_opt", self.wav2vec_optimizer
