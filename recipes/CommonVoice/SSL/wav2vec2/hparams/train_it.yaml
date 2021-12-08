@@ -42,6 +42,7 @@ ckpt_interval_minutes: 30 # save checkpoint every N min
 # Must be 8 per GPU to fit 32GB of VRAM
 batch_size: 4
 test_batch_size: 4
+gradient_accumulation: 4
 
 dataloader_options:
     batch_size: !ref <batch_size>
@@ -84,7 +85,7 @@ cross_sample_negatives: 0
 normalize: null
 
 modules:
-    normalize: !ref <normalize>
+    #normalize: !ref <normalize>
     wav2vec2: !ref <wav2vec2>
 
 model: !new:torch.nn.ModuleList

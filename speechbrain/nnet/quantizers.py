@@ -137,7 +137,7 @@ class GumbelVectorQuantizer(nn.Module):
 
     def forward(self, x, produce_targets=False):
 
-        result = {"num_vars": self.num_vars * self.groups}
+        result = {"num_vars": torch.Tensor([self.num_vars * self.groups]).to(x.device).squeeze()}
 
         if not self.time_first:
             x = x.transpose(1, 2)
@@ -165,7 +165,7 @@ class GumbelVectorQuantizer(nn.Module):
             -torch.sum(avg_probs * torch.log(avg_probs + 1e-7), dim=-1)
         ).sum()
 
-        result["temp"] = self.curr_temp
+        result["temp"] = torch.Tensor([self.curr_temp]).to(x.device).squeeze()
 
         if self.training:
             x = F.gumbel_softmax(x.float(), tau=self.curr_temp, hard=True).type_as(x)

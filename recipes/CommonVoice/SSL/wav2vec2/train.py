@@ -26,8 +26,8 @@ class SSL(sb.core.Brain):
         batch = batch.to(self.device)
         wavs, wav_lens = batch.sig
         wavs, wav_lens = wavs.to(self.device), wav_lens.to(self.device)
-        if self.modules.normalize:
-            wavs = self.modules.normalize(wavs, wav_lens)
+        if self.hparams.normalize:
+            wavs = self.hparams.normalize(wavs, wav_lens)
         wavs = wavs.unsqueeze(-1)
 
         if stage == sb.Stage.TRAIN:
@@ -102,26 +102,29 @@ class SSL(sb.core.Brain):
 
             loss_dict = self.compute_objectives(feat_masked, pos_target, neg_target, num_vars, prob_perplexity, batch, sb.Stage.TRAIN)
             loss = loss_dict['loss']
-            loss.backward()
+            
+            
+            (loss / self.hparams.gradient_accumulation).backward()
 
-            if self.check_gradients(loss):
-                self.wav2vec_optimizer.step()
+            if self.step % self.hparams.gradient_accumulation == 0:
+                if self.check_gradients(loss):
+                    self.wav2vec_optimizer.step()
 
-            self.wav2vec_optimizer.zero_grad()
-            self.hparams.lr_annealing_wav2vec(self.wav2vec_optimizer)
+                self.wav2vec_optimizer.zero_grad()
+                self.hparams.lr_annealing_wav2vec(self.wav2vec_optimizer)
 
-        self.hparams.tensorboard_train_logger.writer.add_scalar('loss/train_step', loss.detach(), 
+                self.hparams.tensorboard_train_logger.writer.add_scalar('loss/train_step', loss.detach(), 
                                                                 self.hparams.lr_annealing_wav2vec.n_steps)
-        if loss_dict['contrastive_loss']:
-            self.hparams.tensorboard_train_logger.writer.add_scalar('loss_contrastive/train_step', loss_dict['contrastive_loss'].detach(), 
+                if loss_dict['contrastive_loss']:
+                    self.hparams.tensorboard_train_logger.writer.add_scalar('loss_contrastive/train_step', loss_dict['contrastive_loss'].detach(), 
                                                                     self.hparams.lr_annealing_wav2vec.n_steps)
-        if loss_dict['diversity_loss']:
-            self.hparams.tensorboard_train_logger.writer.add_scalar('loss_diversity/train_step', loss_dict['diversity_loss'].detach(), 
+                if loss_dict['diversity_loss']:
+                    self.hparams.tensorboard_train_logger.writer.add_scalar('loss_diversity/train_step', loss_dict['diversity_loss'].detach(), 
                                                                     self.hparams.lr_annealing_wav2vec.n_steps)
-        if prob_perplexity:
-            self.hparams.tensorboard_train_logger.writer.add_scalar('prob_perplexity/train_step', prob_perplexity, 
+                if prob_perplexity:
+                    self.hparams.tensorboard_train_logger.writer.add_scalar('prob_perplexity/train_step', prob_perplexity, 
                                                                     self.hparams.lr_annealing_wav2vec.n_steps)
-        self.hparams.tensorboard_train_logger.writer.add_scalar('lr/train_step', self.hparams.lr_annealing_wav2vec.current_lr, 
+                self.hparams.tensorboard_train_logger.writer.add_scalar('lr/train_step', self.hparams.lr_annealing_wav2vec.current_lr, 
                                                                 self.hparams.lr_annealing_wav2vec.n_steps)
 
         return loss.detach()
