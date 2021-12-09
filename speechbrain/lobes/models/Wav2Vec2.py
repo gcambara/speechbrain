@@ -255,6 +255,7 @@ class W2V2Loss(nn.Module):
                  contrastive_loss=nn.CrossEntropyLoss(reduction='sum'),
                  contrastive_weight=1.0,
                  diversity_weight=0.1,
+                 latent_l2_weight=10.0,
                  similarity=nn.CosineSimilarity(dim=-1),
                  temp=0.1):
         super().__init__()
@@ -262,10 +263,12 @@ class W2V2Loss(nn.Module):
         self.contrastive_loss = contrastive_loss
         self.contrastive_weight = contrastive_weight
         self.diversity_weight = diversity_weight
+        self.latent_l2_weight = latent_l2_weight
         self.similarity = similarity
         self.temp = temp
 
-    def forward(self, feat, pos_target, neg_target, num_vars, prob_perplexity):
+    def forward(self, feat, pos_target, neg_target, num_vars,
+                prob_perplexity, latent_l2):
         loss = 0.0
         if self.contrastive_weight:
             logits = self.compute_logits(feat, pos_target, neg_target)
@@ -281,8 +284,14 @@ class W2V2Loss(nn.Module):
         else:
             diversity_loss = None
 
+        if self.latent_l2_weight:
+            loss += self.latent_l2_weight * latent_l2
+        else:
+            latent_l2 = None
+
         return {'loss': loss, 'contrastive_loss': contrastive_loss,
                 'diversity_loss': diversity_loss,
+                'latent_l2_loss': latent_l2,
                 'logits': logits, 'target': target}
 
     def compute_logits(self, feat, pos_target, neg_target):
@@ -330,7 +339,7 @@ class Wav2Vec2(nn.Module):
                                        # policy to select the indices to be masked
         self.loss = loss
 
-    def forward(self, wav, apply_mask=False, return_latent=True):
+    def forward(self, wav, apply_mask=False, return_latent=True, penalize_latent=True):
         """Takes an input waveform and returns its corresponding wav2vec2.0 encoding.
 
         Arguments
@@ -339,6 +348,11 @@ class Wav2Vec2(nn.Module):
             A batch of audio signals to transform to features.
         """
         feat = self.latent_extractor(wav)
+
+        if penalize_latent:
+            latent_l2 = feat.float().pow(2).mean()
+        else:
+            latent_l2 = None
 
         if apply_mask:
             mask, mask_indices = self.feat_masker.get_mask(feat.shape)
@@ -376,7 +390,8 @@ class Wav2Vec2(nn.Module):
             feat = self.final_projector(feat)
 
         return {'feat': feat, 'latent': latent, 'quant': quant,
-                 'cont_target': cont_target, 'mask_indices': mask_indices}
+                'latent_l2': latent_l2,
+                'cont_target': cont_target, 'mask_indices': mask_indices}
 
     def sample_negatives(self, y, num, padding_count=None, num_negatives=100, cross_sample_negatives=0):
         if num_negatives == 0 and cross_sample_negatives == 0:

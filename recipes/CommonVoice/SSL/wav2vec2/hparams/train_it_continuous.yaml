@@ -88,6 +88,8 @@ cross_sample_negatives: 0
 #    norm_type: sentence
 normalize: null
 
+penalize_latent: True
+
 modules:
     normalize: !ref <normalize>
     wav2vec2: !ref <wav2vec2>

@@ -35,9 +35,11 @@ class SSL(sb.core.Brain):
                 wavs = self.hparams.augmentation(wavs, wav_lens)
 
         # Forward pass
-        out = self.modules.wav2vec2(wavs, apply_mask=True, return_latent=False)
+        out = self.modules.wav2vec2(wavs, apply_mask=True, return_latent=False,
+                                    penalize_latent=self.hparams.penalize_latent)
 
         feat, quant, mask_indices = out['feat'], out['quant'], out['mask_indices']
+        latent_l2_loss = out['latent_l2']
         feat_masked = feat[:, mask_indices, :]
 
         if quant:
@@ -55,14 +57,16 @@ class SSL(sb.core.Brain):
                                                                cross_sample_negatives=self.hparams.cross_sample_negatives
                                                               )
 
-        return feat_masked, pos_target, neg_target, num_vars, prob_perplexity
+        return feat_masked, pos_target, neg_target, num_vars, prob_perplexity, latent_l2_loss
 
-    def compute_objectives(self, feat_masked, pos_target, neg_target, num_vars, prob_perplexity, batch, stage):
+    def compute_objectives(self, feat_masked, pos_target, neg_target, num_vars, prob_perplexity, 
+                           latent_l2_loss, batch, stage):
         """Computes the loss given predictions and targets."""
 
         ids = batch.id
 
-        loss_dict = self.modules.wav2vec2.loss(feat_masked, pos_target, neg_target, num_vars, prob_perplexity)
+        loss_dict = self.modules.wav2vec2.loss(feat_masked, pos_target, neg_target, 
+                                               num_vars, prob_perplexity, latent_l2_loss)
         logits = loss_dict['logits']
         target = loss_dict['target']
 
@@ -75,6 +79,8 @@ class SSL(sb.core.Brain):
             self.loss_metric_contrastive.append(loss_dict['contrastive_loss'])
         if loss_dict['diversity_loss']:
             self.loss_metric_diversity.append(loss_dict['diversity_loss'])
+        if loss_dict['latent_l2_loss']:
+            self.loss_metric_diversity.append(loss_dict['latent_l2_loss'])
 
         return loss_dict
 
@@ -85,8 +91,10 @@ class SSL(sb.core.Brain):
             self.wav2vec_optimizer.zero_grad()
 
             with torch.cuda.amp.autocast():
-                feat_masked, pos_target, neg_target, num_vars, prob_perplexity = self.compute_forward(batch, sb.Stage.TRAIN)
-                loss_dict = self.compute_objectives(feat_masked, pos_target, neg_target, num_vars, prob_perplexity, batch, sb.Stage.TRAIN)
+                feat_masked, pos_target, neg_target, num_vars, prob_perplexity, latent_l2_loss = self.compute_forward(batch, sb.Stage.TRAIN)
+                loss_dict = self.compute_objectives(feat_masked, pos_target, neg_target, num_vars,
+                                                    prob_perplexity, latent_l2_loss,
+                                                    batch, sb.Stage.TRAIN)
                 loss = loss_dict['loss']
 
             self.scaler.scale(loss).backward()
@@ -98,12 +106,13 @@ class SSL(sb.core.Brain):
 
             self.scaler.update()
         else:
-            feat_masked, pos_target, neg_target, num_vars, prob_perplexity = self.compute_forward(batch, sb.Stage.TRAIN)
+            feat_masked, pos_target, neg_target, num_vars, prob_perplexity, latent_l2_loss = self.compute_forward(batch, sb.Stage.TRAIN)
 
-            loss_dict = self.compute_objectives(feat_masked, pos_target, neg_target, num_vars, prob_perplexity, batch, sb.Stage.TRAIN)
+            loss_dict = self.compute_objectives(feat_masked, pos_target, neg_target, num_vars,
+                                                prob_perplexity, latent_l2_loss,
+                                                batch, sb.Stage.TRAIN)
             loss = loss_dict['loss']
-            
-            
+
             (loss / self.hparams.gradient_accumulation).backward()
 
             if self.step % self.hparams.gradient_accumulation == 0:
@@ -121,6 +130,11 @@ class SSL(sb.core.Brain):
                 if loss_dict['diversity_loss']:
                     self.hparams.tensorboard_train_logger.writer.add_scalar('loss_diversity/train_step', loss_dict['diversity_loss'].detach(), 
                                                                     self.hparams.lr_annealing_wav2vec.n_steps)
+
+                if loss_dict['latent_l2_loss']:
+                    self.hparams.tensorboard_train_logger.writer.add_scalar('loss_latent_l2/train_step', loss_dict['latent_l2_loss'].detach(), 
+                                                                    self.hparams.lr_annealing_wav2vec.n_steps)
+
                 if prob_perplexity:
                     self.hparams.tensorboard_train_logger.writer.add_scalar('prob_perplexity/train_step', prob_perplexity, 
                                                                     self.hparams.lr_annealing_wav2vec.n_steps)
@@ -131,9 +145,9 @@ class SSL(sb.core.Brain):
 
     def evaluate_batch(self, batch, stage):
         """Computations needed for validation/test batches"""
-        feat_masked, pos_target, neg_target, num_vars, prob_perplexity = self.compute_forward(batch, stage=stage)
+        feat_masked, pos_target, neg_target, num_vars, prob_perplexity, latent_l2_loss = self.compute_forward(batch, stage=stage)
         with torch.no_grad():
-            loss_dict = self.compute_objectives(feat_masked, pos_target, neg_target, num_vars, prob_perplexity, batch, stage=stage)
+            loss_dict = self.compute_objectives(feat_masked, pos_target, neg_target, num_vars, prob_perplexity, latent_l2_loss, batch, stage=stage)
             loss = loss_dict['loss']
         return loss.detach()
 
@@ -160,6 +174,7 @@ class SSL(sb.core.Brain):
 
         self.loss_metric_contrastive = []
         self.loss_metric_diversity = []
+        self.loss_metric_latent_l2 = []
 
     def on_stage_end(self, stage, stage_loss, epoch):
         """Gets called at the end of an epoch."""
@@ -173,6 +188,9 @@ class SSL(sb.core.Brain):
         if self.loss_metric_diversity != []:
             avg_loss_diversity = float(sum(self.loss_metric_diversity) / len(self.loss_metric_diversity))
             stage_stats['loss_diversity'] = avg_loss_diversity
+        if self.loss_metric_latent_l2 != []:
+            avg_loss_penalization = float(sum(self.loss_metric_latent_l2) / len(self.loss_metric_latent_l2))
+            stage_stats['loss_latent_l2'] = avg_loss_diversity
 
         if stage == sb.Stage.TRAIN:
             self.train_stats = stage_stats

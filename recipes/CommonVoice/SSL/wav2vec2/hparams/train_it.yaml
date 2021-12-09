@@ -68,6 +68,7 @@ wav2vec2_vector_quantizer: !new:speechbrain.lobes.models.Wav2Vec2.W2V2Quantizer
 wav2vec2_loss: !new:speechbrain.lobes.models.Wav2Vec2.W2V2Loss
     contrastive_weight: 1.0
     diversity_weight: 0.1
+    latent_l2_weight: 10.0
 
 wav2vec2: !new:speechbrain.lobes.models.Wav2Vec2.Wav2Vec2
     latent_extractor:    !ref <wav2vec2_latent_extractor>
@@ -83,6 +84,8 @@ cross_sample_negatives: 0
 #normalize: !new:speechbrain.processing.features.InputNormalization
 #    norm_type: sentence
 normalize: null
+
+penalize_latent: True
 
 modules:
     #normalize: !ref <normalize>
