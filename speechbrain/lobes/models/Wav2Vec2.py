@@ -19,6 +19,17 @@ from speechbrain.nnet.normalization import GroupNorm, LayerNorm
 from speechbrain.nnet.quantizers import GumbelVectorQuantizer
 from speechbrain.lobes.models.transformer.Transformer import TransformerEncoderLayer
 
+class GradMultiply(torch.autograd.Function):
+    @staticmethod
+    def forward(ctx, x, scale):
+        ctx.scale = scale
+        res = x.new(x)
+        return res
+
+    @staticmethod
+    def backward(ctx, grad):
+        return grad * ctx.scale, None
+
 class W2V2LatentExtractor(nn.Module):
     """wav2vec2.0 default latent extractor
     """
@@ -339,7 +350,8 @@ class Wav2Vec2(nn.Module):
                                        # policy to select the indices to be masked
         self.loss = loss
 
-    def forward(self, wav, apply_mask=False, return_latent=True, penalize_latent=True):
+    def forward(self, wav, apply_mask=False, return_latent=True,
+                penalize_latent=True, latent_grad_weight=1.0):
         """Takes an input waveform and returns its corresponding wav2vec2.0 encoding.
 
         Arguments
@@ -348,6 +360,9 @@ class Wav2Vec2(nn.Module):
             A batch of audio signals to transform to features.
         """
         feat = self.latent_extractor(wav)
+
+        if latent_grad_weight != 1.0:
+            feat = GradMultiply.apply(feat, latent_grad_weight)
 
         if penalize_latent:
             latent_l2 = feat.float().pow(2).mean()

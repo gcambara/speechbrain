@@ -36,7 +36,8 @@ class SSL(sb.core.Brain):
 
         # Forward pass
         out = self.modules.wav2vec2(wavs, apply_mask=True, return_latent=False,
-                                    penalize_latent=self.hparams.penalize_latent)
+                                    penalize_latent=self.hparams.penalize_latent,
+                                    latent_grad_weight=self.hparams.latent_grad_weight)
 
         feat, quant, mask_indices = out['feat'], out['quant'], out['mask_indices']
         latent_l2_loss = out['latent_l2']

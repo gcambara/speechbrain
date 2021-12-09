@@ -85,6 +85,7 @@ cross_sample_negatives: 0
 #    norm_type: sentence
 normalize: null
 
+latent_grad_weight: 0.1
 penalize_latent: True
 
 modules:
