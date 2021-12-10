@@ -182,10 +182,12 @@ class W2V2FeatureMasker(nn.Module):
     def __init__(self,
                  mask_dim=768,
                  mask_prob=0.065,
-                 mask_len=10):
+                 mask_len=10,
+                 len_sorting='random'):
         super().__init__()
         self.mask_prob = mask_prob
         self.mask_len = mask_len
+        self.len_sorting = len_sorting
 
         if self.mask_prob > 0:
             self.mask_emb = nn.Parameter(torch.FloatTensor(mask_dim).uniform_())
@@ -194,16 +196,29 @@ class W2V2FeatureMasker(nn.Module):
         x[mask] = self.mask_emb
         return x
 
-    def get_mask(self, input_shape, force_masking=True):
-        ''' The same mask is applied to every sample in the batch '''
+    def get_mask(self, input_shape, wav_lens=None, force_masking=True):
+        ''' The same mask is applied to every sample in the batch 
+            Wav lens indicates the percentage of unpadded samples within
+            each wav in the batch, can be used to ignore padded samples.
+            We assume right padding.'''
 
         batch_size, timesteps = input_shape[0], input_shape[1]
 
         mask_indices = []
         while len(mask_indices) == 0: # if force_masking is set, loop until a mask is generated
-            mask = torch.rand(timesteps - self.mask_len)
+            if wav_lens is not None:
+                minimum_len = self.get_minimum_len(wav_lens)
+                minimum_len = int(minimum_len * timesteps)
+                max_min_diff = timesteps - minimum_len
+                mask = torch.rand(minimum_len - self.mask_len)
+            else:
+                mask = torch.rand(timesteps - self.mask_len)
+                max_min_diff = 0
+
             mask = torch.where(mask < self.mask_prob, True, False)
-            mask = torch.cat((mask, torch.zeros((self.mask_len), dtype=bool)), dim=0)
+            mask = torch.cat((mask, torch.zeros((self.mask_len + max_min_diff),
+                              dtype=bool)), dim=0)
+
             mask_indices = mask.nonzero()
             mask_indices = mask_indices.squeeze(-1)
 
@@ -223,6 +238,17 @@ class W2V2FeatureMasker(nn.Module):
 
     def get_unmasked_features(self, x, mask_indices):
         return x[:, mask_indices, :] # expects & returns B, T, C
+
+    def get_minimum_len(self, wav_lens):
+        if self.len_sorting == 'random':
+            minimum_len = min(wav_lens)
+        elif self.len_sorting == 'ascending':
+            minimum_len = wav_lens[0]
+        elif self.len_sorting == 'descending':
+            minimum_len = wav_lens[-1]
+        else:
+            raise NotImplementedError
+        return minimum_len
 
 class W2V2Quantizer(nn.Module):
     def __init__(self,
@@ -350,7 +376,7 @@ class Wav2Vec2(nn.Module):
                                        # policy to select the indices to be masked
         self.loss = loss
 
-    def forward(self, wav, apply_mask=False, return_latent=True,
+    def forward(self, wav, wav_lens=None, apply_mask=False, return_latent=True,
                 penalize_latent=True, latent_grad_weight=1.0):
         """Takes an input waveform and returns its corresponding wav2vec2.0 encoding.
 
@@ -370,7 +396,7 @@ class Wav2Vec2(nn.Module):
             latent_l2 = None
 
         if apply_mask:
-            mask, mask_indices = self.feat_masker.get_mask(feat.shape)
+            mask, mask_indices = self.feat_masker.get_mask(feat.shape, wav_lens)
             unmasked_feats = self.feat_masker.get_unmasked_features(feat, mask_indices)
 
             if self.vector_quantizer:

@@ -28,15 +28,15 @@ class SSL(sb.core.Brain):
         wavs, wav_lens = batch.sig
         wavs, wav_lens = wavs.to(self.device), wav_lens.to(self.device)
 
-        if self.hparams.crop_to_max_size:
-            if self.hparams.sorting == 'ascending':
-                max_size = wav_lens[0]
-                wavs = batch_crop(wavs, max_size=max_size, method='right')
-            elif self.hparams.sorting == 'descending':
-                max_size = wav_lens[-1]
-                wavs = batch_crop(wavs, max_size=max_size, method='right')
-            else:
-                wavs = batch_crop(wavs, wav_lens, method='right')
+        # if self.hparams.crop_to_max_size:
+        #     if self.hparams.sorting == 'ascending':
+        #         max_size = wav_lens[0]
+        #         wavs = batch_crop(wavs, max_size=max_size, method='right')
+        #     elif self.hparams.sorting == 'descending':
+        #         max_size = wav_lens[-1]
+        #         wavs = batch_crop(wavs, max_size=max_size, method='right')
+        #     else:
+        #         wavs = batch_crop(wavs, wav_lens, method='right')
 
         if self.hparams.normalize:
             wavs = self.hparams.normalize(wavs, wav_lens)
@@ -47,9 +47,16 @@ class SSL(sb.core.Brain):
                 wavs = self.hparams.augmentation(wavs, wav_lens)
 
         # Forward pass
-        out = self.modules.wav2vec2(wavs, apply_mask=True, return_latent=False,
-                                    penalize_latent=self.hparams.penalize_latent,
-                                    latent_grad_weight=self.hparams.latent_grad_weight)
+        if self.hparams.dont_mask_padding:
+            x_lens = wav_lens
+        else:
+            x_lens = None
+
+        out = self.modules.wav2vec2(wavs, wav_lens=x_lens, apply_mask=True, 
+                        return_latent=False,
+                        penalize_latent=self.hparams.penalize_latent,
+                        latent_grad_weight=self.hparams.latent_grad_weight)
+
 
         feat, quant, mask_indices = out['feat'], out['quant'], out['mask_indices']
         latent_l2_loss = out['latent_l2']
@@ -346,39 +353,39 @@ def dataio_prepare(hparams):
     )
     return train_data, valid_data, test_data
 
-def batch_crop(wavs, wav_lens=None, max_size=None, method='right'):
-    """Crops every sample in the batch to match the minimum length.
-       Max size is expressed as percentage.
-    """
+# def batch_crop(wavs, wav_lens=None, max_size=None, method='right'):
+#     """Crops every sample in the batch to match the minimum length.
+#        Max size is expressed as percentage.
+#     """
 
-    max_len = wavs.size(-1)
+#     max_len = wavs.size(-1)
 
-    if max_size is None:
-        target_size = min(wav_lens).item()
-    else:
-        target_size = max_size
+#     if max_size is None:
+#         target_size = min(wav_lens).item()
+#     else:
+#         target_size = max_size
 
-    target_size = int(target_size * max_len)
+#     target_size = int(target_size * max_len)
 
-    cropped_wavs = []
-    for wav in wavs:
-        size = len(wav)
-        diff = size - target_size
-        if diff <= 0:
-            cropped_wavs.append(wav.unsqueeze(0))
-        else:
-            if method == 'random':
-                start = np.random.randint(0, diff + 1)
-                end = size - diff + start
-            elif method == 'right':
-                start = 0
-                end = target_size
-            else:
-                raise NotImplementedError
-            cropped_wavs.append(wav[start:end].unsqueeze(0))
+#     cropped_wavs = []
+#     for wav in wavs:
+#         size = len(wav)
+#         diff = size - target_size
+#         if diff <= 0:
+#             cropped_wavs.append(wav.unsqueeze(0))
+#         else:
+#             if method == 'random':
+#                 start = np.random.randint(0, diff + 1)
+#                 end = size - diff + start
+#             elif method == 'right':
+#                 start = 0
+#                 end = target_size
+#             else:
+#                 raise NotImplementedError
+#             cropped_wavs.append(wav[start:end].unsqueeze(0))
 
-    wavs = torch.cat(cropped_wavs, dim=0)
-    return wavs
+#     wavs = torch.cat(cropped_wavs, dim=0)
+#     return wavs
 
 if __name__ == "__main__":
 

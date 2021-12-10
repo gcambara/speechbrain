@@ -44,7 +44,8 @@ batch_size: 8
 test_batch_size: 4
 gradient_accumulation: 8
 
-crop_to_max_size: True
+#crop_to_max_size: True
+dont_mask_padding: True
 
 dataloader_options:
     batch_size: !ref <batch_size>
@@ -66,6 +67,7 @@ wav2vec2_feature_masker: !new:speechbrain.lobes.models.Wav2Vec2.W2V2FeatureMaske
     mask_dim: 768
     mask_prob: 0.065
     mask_len: 10
+    len_sorting: !ref <sorting>
 wav2vec2_vector_quantizer: !new:speechbrain.lobes.models.Wav2Vec2.W2V2Quantizer
 wav2vec2_loss: !new:speechbrain.lobes.models.Wav2Vec2.W2V2Loss
     contrastive_weight: 1.0
