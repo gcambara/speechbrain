@@ -41,7 +41,8 @@ class W2V2LatentExtractor(nn.Module):
                  stride=[5, 2, 2, 2, 2, 2, 2],
                  bias=[False] * 7,
                  norms=[GroupNorm(num_groups=512, input_size=512, affine=True)] + [None] * 6,
-                 acts=[nn.GELU()] * 7
+                 acts=[nn.GELU()] * 7,
+                 init='kaiming',
                  ):
 
         super().__init__()
@@ -50,13 +51,19 @@ class W2V2LatentExtractor(nn.Module):
         blocks = collections.OrderedDict()
         for i in range(len(in_channels)):
             conv_block = collections.OrderedDict()
-            conv_block[f'conv1d_{i}'] = Conv1d(out_channels=out_channels[i],
-                                               kernel_size=kernel_size[i],
-                                               in_channels=in_channels[i],
-                                               stride=stride[i],
-                                               bias=bias[i])
+
+            conv = Conv1d(out_channels=out_channels[i],
+                          kernel_size=kernel_size[i],
+                          in_channels=in_channels[i],
+                          stride=stride[i],
+                          bias=bias[i])
+            if init == 'kaiming':
+                nn.init.kaiming_normal_(conv.conv.weight)
+            conv_block[f'conv1d_{i}'] = conv
+
             if norms[i]:
                 conv_block[f'norm_{i}'] = norms[i]
+
             conv_block[f'activation_{i}'] = acts[i]
 
             blocks[f'conv_block_{i}'] = nn.Sequential(conv_block)
@@ -490,4 +497,5 @@ class Wav2Vec2(nn.Module):
         ).permute(
             2, 0, 1, 3
         )  # to NxBxTxC
+
         return negs, neg_idxs

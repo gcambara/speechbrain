@@ -70,10 +70,17 @@ class SSL(sb.core.Brain):
             pos_target = out['cont_target']
             num_vars, prob_perplexity = None, None
 
+        if self.hparams.dynamic_distractor_sampling:
+            max_num_negatives = int(len(mask_indices) * self.hparams.distractors_mask_percentage)
+            if max_num_negatives > self.hparams.max_num_negatives:
+                max_num_negatives = self.hparams.max_num_negatives
+        else:
+            max_num_negatives = self.hparams.max_num_negatives
+
         neg_target, _ = self.modules.wav2vec2.sample_negatives(pos_target,
                                                                pos_target.size(1),
                                                                padding_count=0,
-                                                               num_negatives=self.hparams.num_negatives,
+                                                               num_negatives=max_num_negatives,
                                                                cross_sample_negatives=self.hparams.cross_sample_negatives
                                                               )
 

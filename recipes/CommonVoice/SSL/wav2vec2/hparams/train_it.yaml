@@ -30,7 +30,7 @@ skip_prep: False # Skip data preparation
 avoid_if_longer_than: 8.0
 
 # Training parameters
-number_of_epochs: 80 # 10 * gradient_accumulation
+number_of_epochs: 100 # 10 * gradient_accumulation
 lr_wav2vec: 1.43 # lr * sqrt(emb_dim)
 sorting: ascending
 auto_mix_prec: False
@@ -41,8 +41,8 @@ ckpt_interval_minutes: 30 # save checkpoint every N min
 # With DDP batch_size is multiplied by N jobs
 # Must be 8 per GPU to fit 32GB of VRAM
 batch_size: 8
-test_batch_size: 4
-gradient_accumulation: 8
+test_batch_size: 8
+gradient_accumulation: 16
 
 #crop_to_max_size: True
 dont_mask_padding: True
@@ -83,6 +83,11 @@ wav2vec2: !new:speechbrain.lobes.models.Wav2Vec2.Wav2Vec2
     loss:                !ref <wav2vec2_loss>
 
 
+dynamic_distractor_sampling: True
+distractors_mask_percentage: 0.5
+max_num_negatives: 100
+
+#num_negatives: 100
 num_negatives: 100
 cross_sample_negatives: 0
 #normalize: !new:speechbrain.processing.features.InputNormalization
