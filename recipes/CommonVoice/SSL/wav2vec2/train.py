@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 import sys
+import numpy as np
 import torch
 import torch.nn.functional as F
 import logging
@@ -26,6 +27,17 @@ class SSL(sb.core.Brain):
         batch = batch.to(self.device)
         wavs, wav_lens = batch.sig
         wavs, wav_lens = wavs.to(self.device), wav_lens.to(self.device)
+
+        if self.hparams.crop_to_max_size:
+            if self.hparams.sorting == 'ascending':
+                max_size = wav_lens[0]
+                wavs = batch_random_crop(wavs, max_size=max_size)
+            elif self.hparams.sorting == 'descending':
+                max_size = wav_lens[-1]
+                wavs = batch_random_crop(wavs, max_size=max_size)
+            else:
+                wavs = batch_random_crop(wavs, wav_lens)
+
         if self.hparams.normalize:
             wavs = self.hparams.normalize(wavs, wav_lens)
         wavs = wavs.unsqueeze(-1)
@@ -334,6 +346,33 @@ def dataio_prepare(hparams):
     )
     return train_data, valid_data, test_data
 
+def batch_random_crop(wavs, wav_lens=None, max_size=None):
+    """Crops every sample in the batch to match the minimum length.
+       Max size is expressed as percentage.
+    """
+
+    max_len = wavs.size(-1)
+
+    if max_size is None:
+        target_size = min(wav_lens).item()
+    else:
+        target_size = max_size
+
+    target_size = int(target_size * max_len)
+
+    cropped_wavs = []
+    for wav in wavs:
+        size = len(wav)
+        diff = size - target_size
+        if diff <= 0:
+            cropped_wavs.append(wav.unsqueeze(0))
+        else:
+            start = np.random.randint(0, diff + 1)
+            end = size - diff + start
+            cropped_wavs.append(wav[start:end].unsqueeze(0))
+
+    wavs = torch.cat(cropped_wavs, dim=0)
+    return wavs
 
 if __name__ == "__main__":
 

@@ -44,6 +44,8 @@ batch_size: 8
 test_batch_size: 4
 gradient_accumulation: 8
 
+crop_to_max_size: True
+
 dataloader_options:
     batch_size: !ref <batch_size>
     num_workers: 2
@@ -99,7 +101,7 @@ wav2vec_opt_class: !name:torch.optim.Adam
 
 lr_annealing_wav2vec: !new:speechbrain.nnet.schedulers.NoamScheduler
     lr_initial: !ref <lr_wav2vec>
-    n_warmup_steps: 100000 # 32000 * gradient_accumulation
+    n_warmup_steps: 400000 # 32000 * gradient_accumulation
     model_size: 256
 
 checkpointer: !new:speechbrain.utils.checkpoints.Checkpointer

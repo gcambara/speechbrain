@@ -421,7 +421,6 @@ def batch_pad_right(tensors: list, mode="constant", value=0):
 
     return batched, torch.tensor(valid)
 
-
 def split_by_whitespace(text):
     """A very basic functional version of str.split"""
     return text.split()
