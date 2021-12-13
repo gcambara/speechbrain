@@ -136,7 +136,11 @@ wav2vec2: !new:speechbrain.lobes.models.Wav2Vec2.Wav2Vec2
     feat_masker:         !ref <wav2vec2_feature_masker>
     loss:                !ref <wav2vec2_loss>
 
-pretrained: '/home/b.gcr/projects/sb_wav2vec2/git/sb_dev/recipes/CommonVoice/SSL/wav2vec2/results/wav2vec2_it/2011/save/CKPT+2021-12-13+04-23-01+00/model.ckpt'
+#pretrained: '/home/b.gcr/projects/sb_wav2vec2/git/sb_dev/recipes/CommonVoice/SSL/wav2vec2/results/wav2vec2_it/2011/save/CKPT+2021-12-13+04-23-01+00/model.ckpt' # 2011
+#pretrained: '/home/b.gcr/projects/sb_wav2vec2/git/sb_dev/recipes/CommonVoice/SSL/wav2vec2/results/wav2vec2_it/2010/save/CKPT+2021-12-11+18-27-39+00/model.ckpt' # 2010
+pretrained: '/home/b.gcr/projects/sb_wav2vec2/git/sb_dev/recipes/CommonVoice/SSL/wav2vec2/results/wav2vec2_it/2007/save/CKPT+2021-12-11+16-57-14+00/model.ckpt' # 2007
+output_norm: True
+freeze: !ref <freeze_wav2vec>
 #####
 # Uncomment this block if you prefer to use a Fairseq pretrained model instead
 # of a HuggingFace one. Here, we provide an URL that is obtained from the

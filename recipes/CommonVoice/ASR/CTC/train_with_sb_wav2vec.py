@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 import sys
 import torch
+import torch.nn.functional as F
 import logging
 import speechbrain as sb
 import torchaudio
@@ -52,6 +53,8 @@ class ASR(sb.core.Brain):
         # Forward pass
         wavs = wavs.unsqueeze(-1)
         feats = self.modules.wav2vec2(wavs, return_latent=False, penalize_latent=False)['feat']
+        if self.hparams.output_norm:
+            feats = F.layer_norm(feats, feats.shape)
         x = self.modules.enc(feats)
         logits = self.modules.ctc_lin(x)
         p_ctc = self.hparams.log_softmax(logits)
@@ -338,6 +341,12 @@ if __name__ == "__main__":
         state_dict = torch.load(hparams["pretrained"])
         torch.nn.modules.utils.consume_prefix_in_state_dict_if_present(state_dict, prefix='0.')
         hparams["modules"]["wav2vec2"].load_state_dict(state_dict)
+
+    if hparams['freeze']:
+        hparams["modules"]["wav2vec2"].eval()
+        # Freeze parameters
+        for param in hparams["modules"]["wav2vec2"].parameters():
+            param.requires_grad = False
 
     # Trainer initialization
     asr_brain = ASR(

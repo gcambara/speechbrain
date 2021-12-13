@@ -31,7 +31,8 @@ avoid_if_longer_than: 8.0
 
 # Training parameters
 number_of_epochs: 100 # 10 * gradient_accumulation
-lr_wav2vec: 1.43 # lr * sqrt(emb_dim)
+#lr_wav2vec: 1.43 # lr * sqrt(emb_dim)
+lr_wav2vec: 0.43
 sorting: ascending
 auto_mix_prec: False
 sample_rate: 16000
