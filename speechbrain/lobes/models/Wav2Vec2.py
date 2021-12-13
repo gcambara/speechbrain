@@ -362,6 +362,7 @@ class Wav2Vec2(nn.Module):
     def __init__(self,
                  latent_extractor=W2V2LatentExtractor(),
                  latent_projector=W2V2LatentProjector(),
+                 latent_norm=LayerNorm(input_size=512),
                  positional_encoding=W2V2PositionalEncoding(),
                  context_extractor=W2V2ContextExtractorBase(),
                  final_projector=Linear(n_neurons=256, input_size=768),
@@ -373,6 +374,7 @@ class Wav2Vec2(nn.Module):
         super().__init__()
         self.latent_extractor = latent_extractor
         self.latent_projector = latent_projector
+        self.latent_norm = latent_norm
         self.positional_encoding = positional_encoding
         self.context_extractor = context_extractor
         self.final_projector = final_projector
@@ -401,6 +403,8 @@ class Wav2Vec2(nn.Module):
             latent_l2 = feat.float().pow(2).mean()
         else:
             latent_l2 = None
+
+        feat = self.latent_norm(feat)
 
         if apply_mask:
             mask, mask_indices = self.feat_masker.get_mask(feat.shape, wav_lens)
