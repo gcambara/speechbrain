@@ -30,9 +30,10 @@ skip_prep: False # Skip data preparation
 avoid_if_longer_than: 8.0
 
 # Training parameters
-number_of_epochs: 100 # 10 * gradient_accumulation
-#lr_wav2vec: 1.43 # lr * sqrt(emb_dim)
-lr_wav2vec: 0.43
+#number_of_epochs: 100 # 10 * gradient_accumulation
+number_of_epochs: 10 # 10 * gradient_accumulation
+lr_wav2vec: 1.43 # lr * sqrt(emb_dim)
+#lr_wav2vec: 0.43
 sorting: ascending
 auto_mix_prec: False
 sample_rate: 16000
@@ -88,9 +89,15 @@ dynamic_distractor_sampling: True
 distractors_mask_percentage: 0.5
 max_num_negatives: 100
 
-#num_negatives: 100
+#dynamic_distractor_sampling: False
+#distractors_mask_percentage: 0.5
+#max_num_negatives: 100
+
+
 num_negatives: 100
+#num_negatives: 30
 cross_sample_negatives: 0
+#cross_sample_negatives: 30
 #normalize: !new:speechbrain.processing.features.InputNormalization
 #    norm_type: sentence
 normalize: null
@@ -104,12 +111,19 @@ modules:
 model: !new:torch.nn.ModuleList
     - [!ref <wav2vec2>]
 
-wav2vec_opt_class: !name:torch.optim.Adam
+wav2vec_opt_class: !name:torch.optim.AdamW
     lr: !ref <lr_wav2vec>
+    betas: (0.9,0.98)
+    eps: 0.000001
+    weight_decay: 0.01
+
+# wav2vec_opt_class: !name:torch.optim.Adam
+#     lr: !ref <lr_wav2vec>
 
 lr_annealing_wav2vec: !new:speechbrain.nnet.schedulers.NoamScheduler
     lr_initial: !ref <lr_wav2vec>
-    n_warmup_steps: 400000 # 32000 * gradient_accumulation
+    #n_warmup_steps: 400000 # 32000 * gradient_accumulation
+    n_warmup_steps: 10000
     model_size: 256
 
 checkpointer: !new:speechbrain.utils.checkpoints.Checkpointer

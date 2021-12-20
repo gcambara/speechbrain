@@ -30,10 +30,9 @@ skip_prep: False # Skip data preparation
 avoid_if_longer_than: 8.0
 
 # Training parameters
-number_of_epochs: 10
-lr_wav2vec: 0.08
-#sorting: ascending
-sorting: random
+number_of_epochs: 100
+lr_wav2vec: 1.43
+sorting: ascending
 auto_mix_prec: False
 sample_rate: 16000
 ckpt_interval_minutes: 30 # save checkpoint every N min
@@ -41,9 +40,11 @@ ckpt_interval_minutes: 30 # save checkpoint every N min
 # With data_parallel batch_size is split into N jobs
 # With DDP batch_size is multiplied by N jobs
 # Must be 8 per GPU to fit 32GB of VRAM
-batch_size: 4
-test_batch_size: 4
+batch_size: 8
+test_batch_size: 8
+gradient_accumulation: 16
 
+dont_mask_padding: True
 dataloader_options:
     batch_size: !ref <batch_size>
     num_workers: 2
@@ -64,6 +65,7 @@ wav2vec2_feature_masker: !new:speechbrain.lobes.models.Wav2Vec2.W2V2FeatureMaske
     mask_dim: 768
     mask_prob: 0.065
     mask_len: 10
+    len_sorting: !ref <sorting>
 wav2vec2_vector_quantizer: null
 wav2vec2_target_projector: !new:speechbrain.nnet.linear.Linear
     n_neurons: 256
@@ -71,7 +73,8 @@ wav2vec2_target_projector: !new:speechbrain.nnet.linear.Linear
 wav2vec2_loss: !new:speechbrain.lobes.models.Wav2Vec2.W2V2Loss
     contrastive_weight: 1.0
     diversity_weight: 0.0
-    temp:             0.1
+    latent_l2_weight: 10.0
+    #temp:             0.1
 
 wav2vec2: !new:speechbrain.lobes.models.Wav2Vec2.Wav2Vec2
     latent_extractor:    !ref <wav2vec2_latent_extractor>
@@ -82,23 +85,30 @@ wav2vec2: !new:speechbrain.lobes.models.Wav2Vec2.Wav2Vec2
     feat_masker:         !ref <wav2vec2_feature_masker>
     loss:                !ref <wav2vec2_loss>
 
+dynamic_distractor_sampling: True
+distractors_mask_percentage: 0.5
+max_num_negatives: 100
 num_negatives: 100
 cross_sample_negatives: 0
 #normalize: !new:speechbrain.processing.features.InputNormalization
 #    norm_type: sentence
 normalize: null
 
+latent_grad_weight: 0.1
 penalize_latent: True
 
 modules:
-    normalize: !ref <normalize>
+    #normalize: !ref <normalize>
     wav2vec2: !ref <wav2vec2>
 
 model: !new:torch.nn.ModuleList
     - [!ref <wav2vec2>]
 
-wav2vec_opt_class: !name:torch.optim.Adam
+wav2vec_opt_class: !name:torch.optim.AdamW
     lr: !ref <lr_wav2vec>
+    betas: (0.9,0.98)
+    eps: 0.000001
+    weight_decay: 0.01
 
 lr_annealing_wav2vec: !new:speechbrain.nnet.schedulers.NoamScheduler
     lr_initial: !ref <lr_wav2vec>

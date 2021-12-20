@@ -43,16 +43,18 @@ class ASR(sb.core.Brain):
         """Forward computations from the waveform batches to the output probabilities."""
         batch = batch.to(self.device)
         wavs, wav_lens = batch.sig
+
         tokens_bos, _ = batch.tokens_bos
         wavs, wav_lens = wavs.to(self.device), wav_lens.to(self.device)
 
         if stage == sb.Stage.TRAIN:
-            if hasattr(self.hparams, "augmentation"):
-                wavs = self.hparams.augmentation(wavs, wav_lens)
+           if hasattr(self.hparams, "augmentation"):
+               wavs = self.hparams.augmentation(wavs, wav_lens)
 
         # Forward pass
         wavs = wavs.unsqueeze(-1)
         feats = self.modules.wav2vec2(wavs, return_latent=False, penalize_latent=False)['feat']
+
         if self.hparams.output_norm:
             feats = F.layer_norm(feats, feats.shape)
         x = self.modules.enc(feats)
@@ -143,6 +145,11 @@ class ASR(sb.core.Brain):
         stage_stats = {"loss": stage_loss}
         if stage == sb.Stage.TRAIN:
             self.train_stats = stage_stats
+            if self.hparams.use_tensorboard:
+                self.hparams.tensorboard_train_logger.log_stats(
+                    stats_meta={"Epoch loaded": self.hparams.epoch_counter.current}, 
+                    train_stats=self.train_stats,
+                )
         else:
             stage_stats["CER"] = self.cer_metric.summarize("error_rate")
             stage_stats["WER"] = self.wer_metric.summarize("error_rate")
@@ -170,6 +177,16 @@ class ASR(sb.core.Brain):
                 train_stats=self.train_stats,
                 valid_stats=stage_stats,
             )
+            if self.hparams.use_tensorboard:
+                self.hparams.tensorboard_train_logger.log_stats(
+                    stats_meta={
+                    "epoch": epoch,
+                    "lr_model": old_lr_model,
+                    "lr_wav2vec": old_lr_wav2vec,
+                    }, 
+                    train_stats=self.train_stats,
+                    valid_stats=stage_stats,
+                )
             self.checkpointer.save_and_keep_only(
                 meta={"WER": stage_stats["WER"]}, min_keys=["WER"],
             )
@@ -178,6 +195,16 @@ class ASR(sb.core.Brain):
                 stats_meta={"Epoch loaded": self.hparams.epoch_counter.current},
                 test_stats=stage_stats,
             )
+            if self.hparams.use_tensorboard:
+                self.hparams.tensorboard_train_logger.log_stats(
+                    stats_meta={
+                    "epoch": epoch,
+                    "lr_model": old_lr_model,
+                    "lr_wav2vec": old_lr_wav2vec,
+                    }, 
+                    train_stats=self.train_stats,
+                    valid_stats=stage_stats,
+                )
             with open(self.hparams.wer_file, "w") as w:
                 self.wer_metric.write_stats(w)
 
@@ -307,6 +334,13 @@ if __name__ == "__main__":
         hyperparams_to_save=hparams_file,
         overrides=overrides,
     )
+
+    if hparams["use_tensorboard"]:
+        from speechbrain.utils.train_logger import TensorboardLogger
+
+        hparams["tensorboard_train_logger"] = TensorboardLogger(
+            hparams["tensorboard_logs"]
+        )
 
     # Due to DDP, we do the preparation ONLY on the main python process
     run_on_main(

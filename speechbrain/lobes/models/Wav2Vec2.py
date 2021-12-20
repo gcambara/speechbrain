@@ -385,7 +385,7 @@ class Wav2Vec2(nn.Module):
                                        # policy to select the indices to be masked
         self.loss = loss
 
-    def forward(self, wav, wav_lens=None, apply_mask=False, return_latent=True,
+    def forward(self, wav, wav_lens=None, apply_mask=False, return_latent=False,
                 penalize_latent=True, latent_grad_weight=1.0):
         """Takes an input waveform and returns its corresponding wav2vec2.0 encoding.
 
