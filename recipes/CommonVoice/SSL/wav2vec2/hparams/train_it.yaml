@@ -35,6 +35,7 @@ number_of_epochs: 10 # 10 * gradient_accumulation
 lr_wav2vec: 1.43 # lr * sqrt(emb_dim)
 #lr_wav2vec: 0.43
 sorting: ascending
+batch_ordering: random
 auto_mix_prec: False
 sample_rate: 16000
 ckpt_interval_minutes: 30 # save checkpoint every N min
@@ -46,7 +47,16 @@ batch_size: 8
 test_batch_size: 8
 gradient_accumulation: 16
 
-#crop_to_max_size: True
+# Dynamic batching for ease of use
+dynamic_batching: True
+
+dynamic_batch_sampler:
+    max_batch_len: 45.0 # in terms of seconds
+    left_bucket_len: 1.0
+    multiplier: 1.2
+    shuffle_ex: False # re-create batches at each epoch shuffling examples?
+    batch_ordering: !ref <batch_ordering>
+
 dont_mask_padding: True
 
 dataloader_options:
@@ -69,7 +79,7 @@ wav2vec2_feature_masker: !new:speechbrain.lobes.models.Wav2Vec2.W2V2FeatureMaske
     mask_dim: 768
     mask_prob: 0.065
     mask_len: 10
-    len_sorting: !ref <sorting>
+    len_sorting: !ref <batch_ordering>
 wav2vec2_vector_quantizer: !new:speechbrain.lobes.models.Wav2Vec2.W2V2Quantizer
 wav2vec2_loss: !new:speechbrain.lobes.models.Wav2Vec2.W2V2Loss
     contrastive_weight: 1.0

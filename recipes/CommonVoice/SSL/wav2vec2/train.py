@@ -9,8 +9,11 @@ import torchaudio
 from hyperpyyaml import load_hyperpyyaml
 from speechbrain.tokenizers.SentencePiece import SentencePiece
 from speechbrain.utils.Accuracy import Accuracy
+from speechbrain.dataio.batch import PaddedBatch
 from speechbrain.utils.data_utils import undo_padding
+from speechbrain.dataio.dataloader import SaveableDataLoader
 from speechbrain.utils.distributed import run_on_main
+from speechbrain.dataio.sampler import DynamicBatchSampler
 
 """Recipe for training a SSL wav2vec2.0 model
 
@@ -27,16 +30,6 @@ class SSL(sb.core.Brain):
         batch = batch.to(self.device)
         wavs, wav_lens = batch.sig
         wavs, wav_lens = wavs.to(self.device), wav_lens.to(self.device)
-
-        # if self.hparams.crop_to_max_size:
-        #     if self.hparams.sorting == 'ascending':
-        #         max_size = wav_lens[0]
-        #         wavs = batch_crop(wavs, max_size=max_size, method='right')
-        #     elif self.hparams.sorting == 'descending':
-        #         max_size = wav_lens[-1]
-        #         wavs = batch_crop(wavs, max_size=max_size, method='right')
-        #     else:
-        #         wavs = batch_crop(wavs, wav_lens, method='right')
 
         if self.hparams.normalize:
             wavs = self.hparams.normalize(wavs, wav_lens)
@@ -356,43 +349,28 @@ def dataio_prepare(hparams):
     sb.dataio.dataset.add_dynamic_item(datasets, audio_pipeline)
 
     sb.dataio.dataset.set_output_keys(
-        datasets, ["id", "sig"],
+       datasets, ["id", "sig"],
     )
-    return train_data, valid_data, test_data
 
-# def batch_crop(wavs, wav_lens=None, max_size=None, method='right'):
-#     """Crops every sample in the batch to match the minimum length.
-#        Max size is expressed as percentage.
-#     """
+    if hparams["dynamic_batching"]:
+        dynamic_hparams = hparams["dynamic_batch_sampler"]
+        for index, dataset in enumerate(datasets):
+            batch_sampler = DynamicBatchSampler(
+                dataset,
+                dynamic_hparams["max_batch_len"],
+                dynamic_hparams["left_bucket_len"],
+                bucket_length_multiplier=dynamic_hparams["multiplier"],
+                length_func=lambda x: x["duration"],
+                shuffle=dynamic_hparams["shuffle_ex"],
+            )
 
-#     max_len = wavs.size(-1)
+            datasets[index] = SaveableDataLoader(
+                dataset,
+                batch_sampler=batch_sampler,
+                collate_fn=PaddedBatch,
+            )
 
-#     if max_size is None:
-#         target_size = min(wav_lens).item()
-#     else:
-#         target_size = max_size
-
-#     target_size = int(target_size * max_len)
-
-#     cropped_wavs = []
-#     for wav in wavs:
-#         size = len(wav)
-#         diff = size - target_size
-#         if diff <= 0:
-#             cropped_wavs.append(wav.unsqueeze(0))
-#         else:
-#             if method == 'random':
-#                 start = np.random.randint(0, diff + 1)
-#                 end = size - diff + start
-#             elif method == 'right':
-#                 start = 0
-#                 end = target_size
-#             else:
-#                 raise NotImplementedError
-#             cropped_wavs.append(wav[start:end].unsqueeze(0))
-
-#     wavs = torch.cat(cropped_wavs, dim=0)
-#     return wavs
+    return datasets[0], datasets[1], datasets[2]
 
 if __name__ == "__main__":
 
