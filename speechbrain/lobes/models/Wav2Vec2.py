@@ -385,7 +385,9 @@ class Wav2Vec2(nn.Module):
                                        # policy to select the indices to be masked
         self.loss = loss
 
-    def forward(self, wav, wav_lens=None, apply_mask=False, return_latent=False,
+    def forward(self, wav, wav_lens=None, apply_mask=False,
+                normalize_wav=True, output_norm=False,
+                return_latent=False,
                 penalize_latent=True, latent_grad_weight=1.0):
         """Takes an input waveform and returns its corresponding wav2vec2.0 encoding.
 
@@ -394,6 +396,9 @@ class Wav2Vec2(nn.Module):
         wav : torch.Tensor (signal)
             A batch of audio signals to transform to features.
         """
+        if normalize_wav:
+            wav = F.layer_norm(wav, normalized_shape=wav.shape[1:])
+
         feat = self.latent_extractor(wav)
 
         if latent_grad_weight != 1.0:
@@ -440,6 +445,9 @@ class Wav2Vec2(nn.Module):
 
         if self.final_projector:
             feat = self.final_projector(feat)
+
+        if output_norm:
+            feat = F.layer_norm(feat, feat.shape)
 
         return {'feat': feat, 'latent': latent, 'quant': quant,
                 'latent_l2': latent_l2,
