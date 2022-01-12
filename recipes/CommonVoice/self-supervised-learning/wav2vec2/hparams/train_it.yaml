@@ -82,13 +82,14 @@ dynamic_batch_sampler:
     batch_ordering: !ref <batch_ordering>
 
 dont_mask_padding: True
+num_workers: 4
 dataloader_options:
     batch_size: !ref <batch_size>
-    num_workers: 4
+    num_workers: !ref <num_workers>
 
 test_dataloader_options:
     batch_size: !ref <test_batch_size>
-    num_workers: 4
+    num_workers: !ref <num_workers>
 
 #
 # Functions and classes
