@@ -67,6 +67,7 @@ ckpt_interval_minutes: 30 # save checkpoint every N min
 # 991 steps/epoch * 100 epochs = 99113 steps
 # 99113 / 10 = 9911 warmup steps
 batch_size: 12
+batch_seconds: 50.0
 test_batch_size: 8
 gradient_accumulation: 16
 
@@ -74,7 +75,7 @@ gradient_accumulation: 16
 dynamic_batching: True
 
 dynamic_batch_sampler:
-    max_batch_len: 50.0 # in terms of seconds
+    max_batch_len: !ref <batch_seconds> # in terms of seconds
     left_bucket_len: 1.0
     multiplier: 1.2
     shuffle_ex: False # re-create batches at each epoch shuffling examples?
