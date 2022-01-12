@@ -511,3 +511,11 @@ class Wav2Vec2(nn.Module):
         )  # to NxBxTxC
 
         return negs, neg_idxs
+
+    def freeze(self):
+        for param in self.parameters():
+            param.requires_grad = False
+
+    def unfreeze(self):
+        for param in self.parameters():
+            param.requires_grad = True
