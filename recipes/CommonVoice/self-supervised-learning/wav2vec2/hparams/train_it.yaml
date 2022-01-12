@@ -129,7 +129,8 @@ max_num_negatives: 100
 
 num_negatives: 100
 cross_sample_negatives: 0
-normalize: null
+normalize_wav: True
+output_norm: False
 
 latent_grad_weight: 0.1
 penalize_latent: True

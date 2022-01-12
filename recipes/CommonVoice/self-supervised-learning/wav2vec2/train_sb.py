@@ -30,32 +30,29 @@ class W2VBrain(sb.core.Brain):
         batch = batch.to(self.device)
         wavs, wav_lens = batch.sig
         wavs, wav_lens = wavs.to(self.device), wav_lens.to(self.device)
-
-        if self.hparams.normalize:
-            wavs = self.hparams.normalize(wavs, wav_lens)
-
-        # Forward on w2v2 and take the loss.
-        # It has to be on train mode even for eval. Otherwise it would deactivate
-        # the loss computation ...
         wavs = wavs.unsqueeze(-1)
 
-        # Forward pass
         if self.hparams.dont_mask_padding:
             x_lens = wav_lens
         else:
             x_lens = None
 
         if self.distributed_launch:
-            out = self.modules.wav2vec2.module(wavs, wav_lens=x_lens, apply_mask=True, 
-                            return_latent=False,
-                            penalize_latent=self.hparams.penalize_latent,
-                            latent_grad_weight=self.hparams.latent_grad_weight)
+            out = self.modules.wav2vec2.module(wavs, wav_lens=x_lens,
+                                               normalize_wav=self.hparams.normalize_wav,
+                                               output_norm=self.hparams.output_norm,
+                                               apply_mask=True, 
+                                               return_latent=False,
+                                               penalize_latent=self.hparams.penalize_latent,
+                                               latent_grad_weight=self.hparams.latent_grad_weight)
         else:
-            out = self.modules.wav2vec2(wavs, wav_lens=x_lens, apply_mask=True, 
-                            return_latent=False,
-                            penalize_latent=self.hparams.penalize_latent,
-                            latent_grad_weight=self.hparams.latent_grad_weight)
-
+            out = self.modules.wav2vec2(wavs, wav_lens=x_lens, 
+                                        normalize_wav=self.hparams.normalize_wav,
+                                        output_norm=self.hparams.output_norm,
+                                        apply_mask=True, 
+                                        return_latent=False,
+                                        penalize_latent=self.hparams.penalize_latent,
+                                        latent_grad_weight=self.hparams.latent_grad_weight)
 
         feat, quant, mask_indices = out['feat'], out['quant'], out['mask_indices']
         latent_l2_loss = out['latent_l2']
