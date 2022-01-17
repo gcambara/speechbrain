@@ -44,6 +44,7 @@ class W2VBrain(sb.core.Brain):
                                                apply_mask=True, 
                                                return_latent=False,
                                                penalize_latent=self.hparams.penalize_latent,
+                                               do_final_projection=True,
                                                latent_grad_weight=self.hparams.latent_grad_weight)
         else:
             out = self.modules.wav2vec2(wavs, wav_lens=x_lens, 
@@ -52,6 +53,7 @@ class W2VBrain(sb.core.Brain):
                                         apply_mask=True, 
                                         return_latent=False,
                                         penalize_latent=self.hparams.penalize_latent,
+                                        do_final_projection=True,
                                         latent_grad_weight=self.hparams.latent_grad_weight)
 
         feat, quant, mask_indices = out['feat'], out['quant'], out['mask_indices']

@@ -45,7 +45,6 @@ warmup: 25000
 weight_decay: 0.01
 d_model: 768  # Needed by the scheduler. 768 is for the BASE w2v2
 sorting: ascending
-#batch_ordering: random
 batch_ordering: !ref <sorting>
 auto_mix_prec: False
 sample_rate: 16000
@@ -97,6 +96,9 @@ test_dataloader_options:
 epoch_counter: !new:speechbrain.utils.epoch_loop.EpochCounter
     limit: !ref <number_of_epochs>
 
+contrastive_weight: 1.0
+diversity_weight: 0.1
+latent_l2_weight: 10.0
 wav2vec2_latent_extractor: !new:speechbrain.lobes.models.Wav2Vec2.W2V2LatentExtractor
 wav2vec2_context_extractor: !new:speechbrain.lobes.models.Wav2Vec2.W2V2ContextExtractorBase
 wav2vec2_positional_encoding: !new:speechbrain.lobes.models.Wav2Vec2.W2V2PositionalEncoding
@@ -107,9 +109,9 @@ wav2vec2_feature_masker: !new:speechbrain.lobes.models.Wav2Vec2.W2V2FeatureMaske
     len_sorting: !ref <batch_ordering>
 wav2vec2_vector_quantizer: !new:speechbrain.lobes.models.Wav2Vec2.W2V2Quantizer
 wav2vec2_loss: !new:speechbrain.lobes.models.Wav2Vec2.W2V2Loss
-    contrastive_weight: 1.0
-    diversity_weight: 0.1
-    latent_l2_weight: 10.0
+    contrastive_weight: !ref <contrastive_weight>
+    diversity_weight: !ref <diversity_weight>
+    latent_l2_weight: !ref <latent_l2_weight>
 
 wav2vec2: !new:speechbrain.lobes.models.Wav2Vec2.Wav2Vec2
     latent_extractor:    !ref <wav2vec2_latent_extractor>
@@ -118,16 +120,10 @@ wav2vec2: !new:speechbrain.lobes.models.Wav2Vec2.Wav2Vec2
     vector_quantizer:    !ref <wav2vec2_vector_quantizer>
     feat_masker:         !ref <wav2vec2_feature_masker>
     loss:                !ref <wav2vec2_loss>
-#wav2vec2: !new:speechbrain.lobes.models.huggingface_wav2vec.HuggingFaceWav2Vec2Pretrain
-#    source: !ref <wav2vec2_hub>
-#    save_path: !ref <save_folder>/wav2vec2_checkpoints
-#    mask_prob: !ref <mask_prob>
-#    mask_length: !ref <mask_length>
 
 dynamic_distractor_sampling: False
 distractors_mask_percentage: 0.5
 max_num_negatives: 100
-
 
 num_negatives: 100
 cross_sample_negatives: 0
@@ -148,7 +144,6 @@ opt_class: !name:torch.optim.AdamW
 
 noam_annealing: !new:speechbrain.nnet.schedulers.NoamScheduler
     lr_initial: !ref <lr_adam>
-    #n_warmup_steps: 25000
     n_warmup_steps: !ref <warmup>
     model_size: !ref <d_model>
 

@@ -89,6 +89,10 @@ class W2V2LatentProjector(nn.Module):
         else:
             self.dropout = None
 
+        k = math.sqrt(1 / input_size)
+        nn.init.uniform_(self.linear.w.weight, a=-k, b=k)
+        nn.init.uniform_(self.linear.w.bias, a=-k, b=k)
+
     def forward(self, x):
         x = self.linear(x)
         if self.dropout:
@@ -123,6 +127,12 @@ class W2V2ContextExtractorBase(nn.Module):
 
         self.context_extractor = nn.Sequential(layers)
         self.layer_drop = layer_drop
+
+        for module in self.modules():
+            if isinstance(module, nn.Linear):
+                module.weight.data.normal_(mean=0.0, std=0.02)
+                if module.bias is not None:
+                    module.bias.data.zero_()
 
     def forward(self, x):
         for layer in self.context_extractor:
@@ -380,15 +390,15 @@ class Wav2Vec2(nn.Module):
         self.final_projector = final_projector
         self.target_projector = target_projector
         self.vector_quantizer = vector_quantizer
-        self.feat_masker = feat_masker # any function that returns a feat map masked, with the indices
-                                       # a feat masker has the mask vector (learnable or not), and the
-                                       # policy to select the indices to be masked
+        self.feat_masker = feat_masker
         self.loss = loss
 
     def forward(self, wav, wav_lens=None, apply_mask=False,
                 normalize_wav=True, output_norm=False,
                 return_latent=False,
-                penalize_latent=True, latent_grad_weight=1.0):
+                penalize_latent=True, 
+                do_final_projection=False,
+                latent_grad_weight=1.0):
         """Takes an input waveform and returns its corresponding wav2vec2.0 encoding.
 
         Arguments
@@ -443,7 +453,7 @@ class Wav2Vec2(nn.Module):
             feat += self.positional_encoding(feat)
         feat = self.context_extractor(feat)
 
-        if self.final_projector:
+        if self.final_projector and do_final_projection:
             feat = self.final_projector(feat)
 
         if output_norm:
