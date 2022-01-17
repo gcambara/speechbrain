@@ -17,8 +17,7 @@ tensorboard_logs: !ref <output_folder>/logs/
 
 # Data files
 data_folder: /home/b.gcr/datasets/it/commonvoice/cv-corpus-7.0-2021-07-21/it  # e.g, /localscratch/cv-corpus-5.1-2020-06-22/it
-#train_tsv_file: !ref <data_folder>/validated.tsv  # Standard CommonVoice .tsv files
-train_tsv_file: !ref <data_folder>/train.tsv  # Standard CommonVoice .tsv files
+train_tsv_file: !ref <data_folder>/validated.tsv  # Standard CommonVoice .tsv files
 dev_tsv_file: !ref <data_folder>/dev.tsv  # Standard CommonVoice .tsv files
 test_tsv_file: !ref <data_folder>/test.tsv  # Standard CommonVoice .tsv files
 language: it # use 'it' for Italian, 'rw' for Kinyarwanda, 'en' for english
@@ -42,6 +41,7 @@ freeze_wav2vec: False
 
 number_of_epochs: 100
 lr_adam: 2.0 # This will get reduced by the training scheduler
+warmup: 25000
 weight_decay: 0.01
 d_model: 768  # Needed by the scheduler. 768 is for the BASE w2v2
 sorting: ascending
@@ -67,6 +67,7 @@ ckpt_interval_minutes: 30 # save checkpoint every N min
 # 991 steps/epoch * 100 epochs = 99113 steps
 # 99113 / 10 = 9911 warmup steps
 batch_size: 12
+batch_seconds: 50.0
 test_batch_size: 8
 gradient_accumulation: 16
 
@@ -74,20 +75,21 @@ gradient_accumulation: 16
 dynamic_batching: True
 
 dynamic_batch_sampler:
-    max_batch_len: 50.0 # in terms of seconds
+    max_batch_len: !ref <batch_seconds> # in terms of seconds
     left_bucket_len: 1.0
     multiplier: 1.2
     shuffle_ex: False # re-create batches at each epoch shuffling examples?
     batch_ordering: !ref <batch_ordering>
 
 dont_mask_padding: True
+num_workers: 4
 dataloader_options:
     batch_size: !ref <batch_size>
-    num_workers: 4
+    num_workers: !ref <num_workers>
 
 test_dataloader_options:
     batch_size: !ref <test_batch_size>
-    num_workers: 4
+    num_workers: !ref <num_workers>
 
 #
 # Functions and classes
@@ -147,7 +149,7 @@ opt_class: !name:torch.optim.AdamW
 noam_annealing: !new:speechbrain.nnet.schedulers.NoamScheduler
     lr_initial: !ref <lr_adam>
     #n_warmup_steps: 25000
-    n_warmup_steps: 9911
+    n_warmup_steps: !ref <warmup>
     model_size: !ref <d_model>
 
 checkpointer: !new:speechbrain.utils.checkpoints.Checkpointer
