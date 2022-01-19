@@ -17,7 +17,7 @@ tensorboard_logs: !ref <output_folder>/logs/
 
 # Data files
 data_folder: /home/b.gcr/datasets/it/commonvoice/cv-corpus-7.0-2021-07-21/it  # e.g, /localscratch/cv-corpus-5.1-2020-06-22/it
-train_tsv_file: !ref <data_folder>/validated.tsv  # Standard CommonVoice .tsv files
+train_tsv_file: !ref <data_folder>/train.tsv  # Standard CommonVoice .tsv files
 dev_tsv_file: !ref <data_folder>/dev.tsv  # Standard CommonVoice .tsv files
 test_tsv_file: !ref <data_folder>/test.tsv  # Standard CommonVoice .tsv files
 language: it # use 'it' for Italian, 'rw' for Kinyarwanda, 'en' for english
