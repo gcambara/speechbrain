@@ -54,15 +54,10 @@ class ASR(sb.core.Brain):
 
         # Forward pass
         wavs = wavs.unsqueeze(-1)
-        self.activations = {}
         feats = self.modules.wav2vec2(wavs, return_latent=False, penalize_latent=False,
                                       normalize_wav=self.hparams.normalize_wav,
                                       output_norm=self.hparams.output_norm)['feat']
 
-        feats = list(self.activations.values())[0]
-
-        if self.hparams.output_norm:
-            feats = F.layer_norm(feats, feats.shape)
         x = self.modules.enc(feats)
         logits = self.modules.ctc_lin(x)
         p_ctc = self.hparams.log_softmax(logits)
@@ -229,26 +224,6 @@ class ASR(sb.core.Brain):
             )
             self.checkpointer.add_recoverable("modelopt", self.model_optimizer)
 
-    def get_activation(self, name):
-        def hook(model, input, output):
-            self.activations[name] = output.detach()
-        return hook
-
-    def register_hooks(self):
-        def rgetattr(obj, attr, *args):
-            def _getattr(obj, attr):
-                return getattr(obj, attr, *args)
-            return functools.reduce(_getattr, [obj] + attr.split('.'))
-
-        hooks = []
-        #hooks.append(("context_extractor.context_extractor.trn_layer_11", lambda input, output: output))
-        hooks.append(("context_extractor", lambda input, output: output))
-
-        for model_hook in hooks:
-            name = model_hook[0]
-            #rgetattr(self.modules.wav2vec2, name).register_forward_hook(self.get_activation(f"{name}"))
-            getattr(self.modules.wav2vec2, name).register_forward_hook(self.get_activation(f"{name}"))
-
 # Define custom data procedure
 def dataio_prepare(hparams, tokenizer):
     """This function prepares the datasets to be used in the brain class.
@@ -406,7 +381,6 @@ if __name__ == "__main__":
         hparams["modules"]["wav2vec2"].freeze()
     elif hparams['freeze_latent_extractor']:
         for name, param in hparams['modules']['wav2vec2'].named_parameters():
-            print(name)
             if name.startswith('latent_extractor'):
                 param.requires_grad = False
 
@@ -417,8 +391,6 @@ if __name__ == "__main__":
         run_opts=run_opts,
         checkpointer=hparams["checkpointer"],
     )
-
-    asr_brain.register_hooks()
 
     # Adding objects to trainer.
     asr_brain.tokenizer = tokenizer
