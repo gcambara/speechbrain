@@ -4,7 +4,10 @@ Reference: https://arxiv.org/abs/2006.11477
 Reference: https://arxiv.org/abs/1904.05862
 
 Authors
- * Guillermo Cambara 2021
+ * Guillermo Cambara 2022
+ * Rudolf Braun      2022
+ * Titouan Parcollet 2022
+ * Sarthak Yadav     2022
 """
 
 import collections
@@ -134,12 +137,15 @@ class W2V2ContextExtractorBase(nn.Module):
                 if module.bias is not None:
                     module.bias.data.zero_()
 
-    def forward(self, x):
+    def forward(self, x, output_hidden_states=False):
+        hidden_states = []
         for layer in self.context_extractor:
             layer_drop_prob = np.random.random()
             if not self.training or (layer_drop_prob > self.layer_drop):
                 x = layer(x)[0]
-        return x
+                if output_hidden_states:
+                    hidden_states.append(x)
+        return x, hidden_states
 
 class W2V2ContextExtractorLarge(nn.Module):
     def __init__(self):
@@ -151,10 +157,15 @@ class W2V2ContextExtractorLarge(nn.Module):
                                                           normalize_before=[False] * 24
                                                           )
 
-    def forward(self, x):
+    def forward(self, x, output_hidden_states=False):
+        hidden_states = []
         for layer in self.context_extractor:
-            x = layer(x)[0]
-        return x
+            layer_drop_prob = np.random.random()
+            if not self.training or (layer_drop_prob > self.layer_drop):
+                x = layer(x)[0]
+                if output_hidden_states:
+                    hidden_states.append(x)
+        return x, hidden_states
 
 class W2V2PositionalEncoding(nn.Module):
     def __init__(self,
@@ -396,6 +407,7 @@ class Wav2Vec2(nn.Module):
     def forward(self, wav, wav_lens=None, apply_mask=False,
                 normalize_wav=True, output_norm=False,
                 return_latent=False,
+                output_hidden_states=False,
                 penalize_latent=True, 
                 do_final_projection=False,
                 latent_grad_weight=1.0):
@@ -451,7 +463,7 @@ class Wav2Vec2(nn.Module):
 
         if self.positional_encoding:
             feat += self.positional_encoding(feat)
-        feat = self.context_extractor(feat)
+        feat, hidden_states = self.context_extractor(feat, output_hidden_states=output_hidden_states)
 
         if self.final_projector and do_final_projection:
             feat = self.final_projector(feat)
@@ -460,7 +472,7 @@ class Wav2Vec2(nn.Module):
             feat = F.layer_norm(feat, feat.shape)
 
         return {'feat': feat, 'latent': latent, 'quant': quant,
-                'latent_l2': latent_l2,
+                'latent_l2': latent_l2, 'hidden_states': hidden_states,
                 'cont_target': cont_target, 'mask_indices': mask_indices}
 
     def sample_negatives(self, y, num, padding_count=None, num_negatives=100, cross_sample_negatives=0):

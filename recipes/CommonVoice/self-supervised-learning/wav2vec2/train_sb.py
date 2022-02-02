@@ -16,7 +16,10 @@ from speechbrain.dataio.sampler import DynamicBatchSampler
 """Recipe for training a SSL wav2vec2.0 model
 
 Authors
- * Guillermo Cambara 2021
+ * Guillermo Cambara 2022
+ * Rudolf Braun      2022
+ * Titouan Parcollet 2022
+ * Sarthak Yadav     2022
 """
 
 logger = logging.getLogger(__name__)
