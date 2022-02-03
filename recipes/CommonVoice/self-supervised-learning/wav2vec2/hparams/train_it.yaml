@@ -1,6 +1,9 @@
 # ################################
 # Model: wav2vec2 BASE (pretraining)
-# Authors: Titouan Parcollet 2021, Yan Gao 2021
+# Authors: Guillermo Cámbara 2022
+#          Rudolf Braun      2022
+#          Titouan Parcollet 2022
+#          Sarthak Yadav     2022
 # ################################
 
 # Seed needs to be set at top of yaml, before objects with parameters are made
@@ -71,7 +74,7 @@ test_batch_size: 8
 gradient_accumulation: 16
 
 # Dynamic batching for ease of use
-dynamic_batching: True
+dynamic_batching: False
 
 dynamic_batch_sampler:
     max_batch_len: !ref <batch_seconds> # in terms of seconds

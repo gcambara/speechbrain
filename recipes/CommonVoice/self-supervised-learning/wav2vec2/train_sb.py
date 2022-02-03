@@ -201,6 +201,7 @@ class W2VBrain(sb.core.Brain):
             loss_dict = self.compute_objectives(feat_masked, pos_target, neg_target, num_vars, prob_perplexity, latent_l2_loss, batch, stage=stage)
             loss = loss_dict['loss']
         return loss.detach()
+
     def on_stage_start(self, stage, epoch):
         """Gets called at the beginning of each epoch"""
         # Compute Accuracy using MetricStats
