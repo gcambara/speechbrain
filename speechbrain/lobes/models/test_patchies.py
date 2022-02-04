@@ -1,5 +1,5 @@
 import torch
-from speechbrain.lobes.models.patchies import CAPE1d, PatchAndPos, Patchies, PatcherLayer
+from speechbrain.lobes.models.patchies import CAPE1d, ContextExtractorBase, PatchAndPos, Patchies, PatcherLayer
 
 #model = Patchies()
 
@@ -41,3 +41,12 @@ fbank = torch.randn(4, 100, 80)
 patches, patch_info = patch_and_pos(fbank)
 print(patches.shape)
 print(patch_info)
+
+contextualizer = ContextExtractorBase()
+y, hidden_states = contextualizer(patches)
+print(y.shape)
+print(hidden_states)
+
+y, hidden_states = contextualizer(patches, True)
+print(y.shape)
+print(len(hidden_states))

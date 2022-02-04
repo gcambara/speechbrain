@@ -316,48 +316,51 @@ class FbankFeaturizer(nn.Module):
 #             x = self.dropout(x)
 #         return x
 
-# class W2V2ContextExtractorBase(nn.Module):
-#     """wav2vec2.0 default context extractor, inits as BASE
-#     """
+class ContextExtractorBase(nn.Module):
+    """Default context extractor, inspired in wav2vec2's
+    """
 
-#     def __init__(self,
-#                  d_ffn=[3072] * 12,
-#                  nhead=[8] * 12,
-#                  d_model=[768] * 12,
-#                  dropout=[0.1] * 12,
-#                  activation=[nn.GELU] * 12,
-#                  normalize_before=[False] * 12,
-#                  layer_drop=0.05
-#                  ):
+    def __init__(self,
+                 d_ffn=[3072] * 12,
+                 nhead=[8] * 12,
+                 d_model=[768] * 12,
+                 dropout=[0.1] * 12,
+                 activation=[nn.GELU] * 12,
+                 normalize_before=[False] * 12,
+                 layer_drop=0.05
+                 ):
 
-#         super().__init__()
-#         assert len(d_ffn) == len(nhead) == len(d_model) == len(dropout) == len(activation) == len(normalize_before), "Error! Check that input lists in the constructor have the same length."
+        super().__init__()
+        assert len(d_ffn) == len(nhead) == len(d_model) == len(dropout) == len(activation) == len(normalize_before), "Error! Check that input lists in the constructor have the same length."
 
-#         layers = collections.OrderedDict()
-#         for i in range(len(d_ffn)):
-#             layers[f'trn_layer_{i}'] = TransformerEncoderLayer(d_ffn=d_ffn[i],
-#                                                                nhead=nhead[i],
-#                                                                d_model=d_model[i],
-#                                                                dropout=dropout[i],
-#                                                                activation=activation[i],
-#                                                                normalize_before=normalize_before[i])
+        layers = collections.OrderedDict()
+        for i in range(len(d_ffn)):
+            layers[f'trn_layer_{i}'] = TransformerEncoderLayer(d_ffn=d_ffn[i],
+                                                               nhead=nhead[i],
+                                                               d_model=d_model[i],
+                                                               dropout=dropout[i],
+                                                               activation=activation[i],
+                                                               normalize_before=normalize_before[i])
 
-#         self.context_extractor = nn.Sequential(layers)
-#         self.layer_drop = layer_drop
+        self.context_extractor = nn.Sequential(layers)
+        self.layer_drop = layer_drop
 
-#         for module in self.modules():
-#             if isinstance(module, nn.Linear):
-#                 module.weight.data.normal_(mean=0.0, std=0.02)
-#                 if module.bias is not None:
-#                     module.bias.data.zero_()
+        for module in self.modules():
+            if isinstance(module, nn.Linear):
+                module.weight.data.normal_(mean=0.0, std=0.02)
+                if module.bias is not None:
+                    module.bias.data.zero_()
 
-#     def forward(self, x):
-#         for layer in self.context_extractor:
-#             layer_drop_prob = np.random.random()
-#             if not self.training or (layer_drop_prob > self.layer_drop):
-#                 x = layer(x)[0]
-#         return x
+    def forward(self, x, output_hidden_states=False):
+        hidden_states = []
+        for layer in self.context_extractor:
+            layer_drop_prob = np.random.random()
+            if not self.training or (layer_drop_prob > self.layer_drop):
+                x = layer(x)[0]
+                if output_hidden_states:
+                    hidden_states.append(x)
 
+        return x, hidden_states
 # class W2V2ContextExtractorLarge(nn.Module):
 #     def __init__(self):
 #         self.context_extractor = W2V2ContextExtractorBase(d_ffn=[4096] * 24,
