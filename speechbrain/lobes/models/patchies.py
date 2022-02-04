@@ -4,19 +4,21 @@ Reference: https://arxiv.org/abs/2006.11477
 Reference: https://arxiv.org/abs/1904.05862
 
 Authors
- * Guillermo Cambara 2021
+ * Guillermo Cambara 2022
 """
 
 import collections
+from einops import rearrange, repeat
 import math
 import numpy as np
 import torch
 import torch.nn.functional as F
 from torch import nn
+from torch import Tensor
+from typing import Optional, Union
 from speechbrain.nnet.CNN import Conv1d
 from speechbrain.nnet.linear import Linear
 from speechbrain.nnet.normalization import GroupNorm, LayerNorm
-#from speechbrain.nnet.quantizers import GumbelVectorQuantizer
 from speechbrain.lobes.features import Fbank
 from speechbrain.lobes.models.transformer.Transformer import TransformerEncoderLayer
 
@@ -30,6 +32,205 @@ from speechbrain.lobes.models.transformer.Transformer import TransformerEncoderL
 #     @staticmethod
 #     def backward(ctx, grad):
 #         return grad * ctx.scale, None
+class CAPE1d(nn.Module):
+    def __init__(self, d_model: int, max_global_shift: float = 0.0, max_local_shift: float = 0.0,
+                 max_global_scaling: float = 1.0, normalize: bool = False, freq_scale: float = 1.0,
+                 batch_first: bool = False):
+        super().__init__()
+
+        assert max_global_shift >= 0, f"""Max global shift is {max_global_shift},
+        but should be >= 0."""
+        assert max_local_shift >= 0, f"""Max local shift is {max_local_shift},
+        but should be >= 0."""
+        assert max_global_scaling >= 1, f"""Global scaling is {max_global_scaling},
+        but should be >= 1."""
+
+        self.max_global_shift = max_global_shift
+        self.max_local_shift = max_local_shift
+        self.max_global_scaling = max_global_scaling
+        self.normalize = normalize
+        self.freq_scale = freq_scale
+        self.batch_first = batch_first
+
+        freq = freq_scale * torch.exp(-2.0 * torch.floor(torch.arange(d_model) / 2)
+                                      * (math.log(1e4) / d_model))
+        self.register_buffer('freq', freq)
+
+        _sin2cos_phase_shift = torch.pi / 2.0
+        cos_shifts = _sin2cos_phase_shift * (torch.arange(d_model) % 2)
+        self.register_buffer('cos_shifts', cos_shifts)
+
+        self.register_buffer('content_scale', Tensor([math.sqrt(d_model)]))
+
+    def forward(self, x: Tensor, x_lengths: Optional[Tensor] = None,
+                positions_delta: Optional[Union[int, Tensor]] = None) -> Tensor:
+        return (x * self.content_scale) + self.compute_pos_emb(x, x_lengths, positions_delta)
+
+    def compute_pos_emb(self, x: Tensor, x_lengths: Optional[Tensor] = None,
+                        positions_delta: Optional[Union[int, Tensor]] = None) -> Tensor:
+        if self.batch_first:
+            batch_size, n_tokens, _ = x.shape # b, t, c
+        else:
+            n_tokens, batch_size, _ = x.shape # t, b, c
+
+        positions = repeat(torch.arange(n_tokens),
+                           't -> new_axis t', new_axis=batch_size).to(x)
+
+        if positions_delta is None:
+            positions_delta = 1
+        else:
+            if torch.is_tensor(positions_delta) and len(positions_delta.shape) == 1:
+                positions_delta = rearrange(positions_delta, 'b -> b 1')
+            positions *= positions_delta
+
+        if x_lengths is not None:
+            padding_mask = positions > x_lengths[:, None]
+            positions[padding_mask] = float('nan')
+
+        if self.normalize:
+            positions -= torch.nanmean(positions, axis=1, keepdim=True)
+        
+        positions = self.augment_positions(positions, positions_delta)
+
+        positions = rearrange(positions, 'b t -> b t 1')
+        product = positions * self.freq.to(x)
+
+        pos_emb = torch.sin(product + self.cos_shifts.to(x))
+
+        if not self.batch_first:
+            pos_emb = rearrange(pos_emb, 'b t c -> t b c')
+
+        pos_emb = torch.nan_to_num(pos_emb, nan=0)
+
+        return pos_emb
+
+    def augment_positions(self, positions: Tensor,
+                          positions_delta: Optional[Union[int, Tensor]] = None):
+        if self.training:
+            batch_size, n_tokens = positions.shape
+
+            if self.max_global_shift:
+                delta = torch.FloatTensor(batch_size, 1).uniform_(-self.max_global_shift,
+                                                                  self.max_global_shift)
+                delta = delta.to(positions.device)
+            else:
+                delta = 0
+
+            if self.max_local_shift:
+                epsilon = self.max_local_shift
+                delta_local = torch.FloatTensor(batch_size, n_tokens)
+                delta_local = delta_local.uniform_(-epsilon,
+                                                   epsilon)
+                delta_local = delta_local.to(positions.device)
+                if positions_delta is not None:
+                    if torch.is_tensor(positions_delta) and len(positions_delta.shape) == 1:
+                        positions_delta = rearrange(positions_delta, 'b -> b 1')
+                    delta_local *= positions_delta
+            else:
+                delta_local = 0
+
+            if self.max_global_scaling > 1.0:
+                log_lambdas = torch.FloatTensor(batch_size, 1)
+                log_lambdas = log_lambdas.uniform_(-math.log(self.max_global_scaling),
+                                                   math.log(self.max_global_scaling))
+                log_lambdas = log_lambdas.to(positions.device)
+            else:
+                log_lambdas = torch.zeros(1).to(positions.device)
+
+            positions = (positions + delta + delta_local) * torch.exp(log_lambdas)
+
+        return positions
+
+    def set_content_scale(self, content_scale: float):
+        self.content_scale = Tensor([content_scale])
+
+class CAPE2d(nn.Module):
+    def __init__(self, d_model: int, max_global_shift: float = 0.0, max_local_shift: float = 0.0,
+                 max_global_scaling: float = 1.0, batch_first: bool = False):
+        super().__init__()
+
+        assert max_global_shift >= 0, f"""Max global shift is {max_global_shift},
+        but should be >= 0."""
+        assert max_local_shift >= 0, f"""Max local shift is {max_local_shift},
+        but should be >= 0."""
+        assert max_global_scaling >= 1, f"""Global scaling is {max_global_scaling},
+        but should be >= 1."""
+        assert d_model % 2 == 0, f"""The number of channels should be even,
+                                     but it is odd! # channels = {d_model}."""
+
+        self.max_global_shift = max_global_shift
+        self.max_local_shift = max_local_shift
+        self.max_global_scaling = max_global_scaling
+        self.batch_first = batch_first
+
+        half_channels = d_model // 2
+        rho = 10 ** torch.linspace(0, 1, half_channels)
+        w_x = rho * torch.cos(torch.arange(half_channels))
+        w_y = rho * torch.sin(torch.arange(half_channels))
+        self.register_buffer('w_x', w_x)
+        self.register_buffer('w_y', w_y)
+
+        self.register_buffer('content_scale', Tensor([math.sqrt(d_model)]))
+
+    def forward(self, patches: Tensor) -> Tensor:
+        return (patches * self.content_scale) + self.compute_pos_emb(patches)
+
+    def compute_pos_emb(self, patches: Tensor) -> Tensor:
+        if self.batch_first:
+            batch_size, patches_x, patches_y, _ = patches.shape # b, x, y, c
+        else:
+            patches_x, patches_y, batch_size, _ = patches.shape # x, y, b, c
+
+        x = torch.zeros([batch_size, patches_x, patches_y])
+        y = torch.zeros([batch_size, patches_x, patches_y])
+        x += torch.linspace(-1, 1, patches_x)[None, :, None]
+        y += torch.linspace(-1, 1, patches_y)[None, None, :]
+
+        x, y = self.augment_positions(x, y)
+
+        phase = torch.pi * (self.w_x * x[:, :, :, None]
+                            + self.w_y * y[:, :, :, None])
+        pos_emb = torch.cat([torch.cos(phase), torch.sin(phase)], axis=-1)
+
+        if not self.batch_first:
+            pos_emb = rearrange(pos_emb, 'b x y c -> x y b c')
+
+        return pos_emb
+
+    def augment_positions(self, x: Tensor, y: Tensor):
+        if self.training:
+            batch_size, _, _ = x.shape
+
+            if self.max_global_shift:
+                x += (torch.FloatTensor(batch_size, 1, 1).uniform_(-self.max_global_shift,
+                                                                   self.max_global_shift)
+                     ).to(x.device)
+                y += (torch.FloatTensor(batch_size, 1, 1).uniform_(-self.max_global_shift,
+                                                                   self.max_global_shift)
+                     ).to(y.device)
+
+            if self.max_local_shift:
+                diff_x = x[0, -1, 0] - x[0, -2, 0]
+                diff_y = y[0, 0, -1] - y[0, 0, -2]
+                epsilon_x = diff_x*self.max_local_shift
+                epsilon_y = diff_y*self.max_local_shift
+                x += torch.FloatTensor(x.shape).uniform_(-epsilon_x,
+                                                         epsilon_x).to(x.device)
+                y += torch.FloatTensor(y.shape).uniform_(-epsilon_y,
+                                                         epsilon_y).to(y.device)
+
+            if self.max_global_scaling > 1.0:
+                log_l = math.log(self.max_global_scaling)
+                lambdas = (torch.exp(torch.FloatTensor(batch_size, 1, 1).uniform_(-log_l,
+                                                                                  log_l))
+                          ).to(x.device)
+                x *= lambdas
+                y *= lambdas
+
+        return x, y
+
+    def set_content_scale(self, content_scale: float):
+        self.content_scale = Tensor([content_scale])
 
 class FbankFeaturizer(nn.Module):
     """Filterbank Featurizer
@@ -414,6 +615,68 @@ class PatcherLayer(nn.Module):
 
         x = x.unsqueeze(1)
         return F.unfold(x, kernel_size=self.patch_size, dilation=1, padding=0, stride=self.patch_stride)
+
+    def get_time_size(self):
+        return self.patch_size[0]
+
+    def get_channel_size(self):
+        return self.patch_size[1]
+
+    def get_time_stride(self):
+        return self.patch_stride[0]
+
+    def get_channel_stride(self):
+        return self.patch_stride[1]
+
+    def get_patch_size(self):
+        return self.patch_size
+
+    def get_patch_stride(self):
+        return self.patch_stride
+
+class PatchAndPos(nn.Module):
+    ''' Patcher and positional embedding
+    '''
+    def __init__(self, patch_sizes, patch_strides, embedding_dim, feat_stride=0.01,
+                 positional_embedding=CAPE1d(d_model=768, normalize=True, 
+                                             freq_scale=10.0, batch_first=True)):
+        super().__init__()
+        self.patch_sizes = patch_sizes
+        self.patch_strides = patch_strides
+        self.embedding_dim = embedding_dim
+        self.feat_stride = feat_stride
+        self.positional_embedding = positional_embedding
+        self.patcher = self.build_patcher(self.patch_sizes, self.patch_strides, self.embedding_dim)
+
+    def forward(self, x):
+        ''' Input  = (B, T, C) 
+            Output = (B, T', C')'''
+
+        patches = []
+        patch_info = {}
+        for i, patcher in enumerate(self.patcher):
+            patch = patcher(x)
+            if self.positional_embedding:
+                positions_delta = patcher.get_time_stride() * self.feat_stride
+                patch = self.positional_embedding(patch, positions_delta=positions_delta)
+            
+            patches.append(patch)
+            patch_info[i] = {'time_length': patch.size(1), 'patch_size': patcher.get_patch_size(),
+                             'patch_stride': patcher.get_patch_stride()}
+
+        patches = torch.cat(patches, dim=1)
+
+        return patches, patch_info
+
+    def build_patcher(self, patch_sizes, patch_strides, embedding_dim):
+        assert len(patch_sizes) == len(patch_strides), f"Error! The number of input patch sizes and patch strides should be the same. # patch sizes = {len(patch_sizes)}, patch strides = {len(patch_strides)}"
+
+        layers = collections.OrderedDict()
+        for i in range(len(patch_sizes)):
+            patch_size, patch_stride = patch_sizes[i], patch_strides[i]
+            layers[f"patch_layer_{i}"] = PatcherLayer(patch_size, patch_stride, embedding_dim)
+
+        return nn.Sequential(layers)
 
 class Patchies(nn.Module):
     """This lobe is patchies implementation.
