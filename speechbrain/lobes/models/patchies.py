@@ -415,7 +415,7 @@ class ContextExtractorBase(nn.Module):
 
 #         return x
 
-# class W2V2FeatureMasker(nn.Module):
+# class FeatureMasker(nn.Module):
 #     def __init__(self,
 #                  mask_dim=768,
 #                  mask_prob=0.065,
@@ -486,6 +486,143 @@ class ContextExtractorBase(nn.Module):
 #         else:
 #             raise NotImplementedError
 #         return minimum_len
+
+class FeatureMasker(nn.Module):
+    def __init__(self,
+                 mask_dim=768,
+                 mask_prob=0.065,
+                 mask_len=10,
+                 len_sorting='random'):
+        super().__init__()
+        self.mask_prob = mask_prob
+        self.mask_len = mask_len
+        self.len_sorting = len_sorting
+
+        if self.mask_prob > 0:
+            self.mask_emb = nn.Parameter(torch.FloatTensor(mask_dim).uniform_())
+
+    def forward(self, x, mask):
+        x[mask] = self.mask_emb
+        return x
+
+    def get_mask(self, input_shape, wav_lens=None, force_masking=True):
+        ''' The same mask is applied to every sample in the batch 
+            Wav lens indicates the percentage of unpadded samples within
+            each wav in the batch, can be used to ignore padded samples.
+            We assume right padding.'''
+
+        batch_size, timesteps = input_shape[0], input_shape[1]
+
+        mask_indices = []
+        while len(mask_indices) == 0: # if force_masking is set, loop until a mask is generated
+            if wav_lens is not None:
+                minimum_len = self.get_minimum_len(wav_lens)
+                minimum_len = int(minimum_len * timesteps)
+                max_min_diff = timesteps - minimum_len
+                mask = torch.rand(minimum_len - self.mask_len)
+            else:
+                mask = torch.rand(timesteps - self.mask_len)
+                max_min_diff = 0
+
+            mask = torch.where(mask < self.mask_prob, True, False)
+            mask = torch.cat((mask, torch.zeros((self.mask_len + max_min_diff),
+                              dtype=bool)), dim=0)
+
+            mask_indices = mask.nonzero()
+            mask_indices = mask_indices.squeeze(-1)
+
+            if not force_masking:
+                break
+
+        for timestep in mask_indices:
+            mask[timestep:timestep + self.mask_len] = True
+
+        mask_indices = mask.nonzero()
+        mask_indices = mask_indices.squeeze(-1)
+
+        mask = mask.unsqueeze(0)
+        mask = mask.expand(batch_size, timesteps)
+
+        return mask, mask_indices
+
+    def get_mask_from_bigger_patch(self, input_shape, patch_info, wav_lens=None,
+                                   force_masking=True):
+        bigger_patch_id = None
+        curr_patch_size = 0
+        for patch_id, info in patch_info.items():
+            patch_size = info['patch_size']
+            n_patches = patch_size[0]*patch_size[1]
+            if n_patches > curr_patch_size:
+                bigger_patch_id = patch_id
+
+        offset = patch_info[bigger_patch_id]['offset']
+        time_length = patch_info[bigger_patch_id]['time_length']
+        time_size = patch_info[bigger_patch_id]['patch_size'][0]
+
+        batch_size, timesteps, channels_size = input_shape
+        input_shape = torch.empty(batch_size, time_length, channels_size).shape
+
+        _, mask_indices = self.get_mask(input_shape, wav_lens=wav_lens, force_masking=force_masking)
+        
+        masked_to_time_frame = (mask_indices + 1)*time_size
+
+        mask = []
+        # Extrapolate to other patch images indices
+        for patch_id, info in patch_info.items():
+            patch_time_size = info['patch_size'][0]
+            patch_time_length = info['time_length']
+            patch_frames = torch.arange(start=1, end=patch_time_length + 1)
+            patch_frames *= patch_time_size
+
+            patch_mask = patch_frames < 0
+            for upper_frame in masked_to_time_frame:
+                lower_frame = upper_frame - time_size
+                upper_mask = patch_frames <= upper_frame
+                lower_mask = lower_frame < patch_frames
+                patch_mask += upper_mask * lower_mask
+            mask.append(patch_mask)
+
+        mask = torch.cat(mask)
+        mask_indices = mask.nonzero()
+        mask_indices = mask_indices.squeeze(-1)
+
+        mask = mask.unsqueeze(0)
+        mask = mask.expand(batch_size, timesteps)
+
+        return mask, mask_indices
+
+    def get_mask_indices_per_patch(self, mask_indices, patch_info):
+        mask_indices_per_patch = []
+        curr_patch_id = 0
+        curr_max_frame = (patch_info[curr_patch_id]['offset'] + 
+                          patch_info[curr_patch_id]['time_length'])
+        curr_mask_indices = []
+        for mask_index in mask_indices:
+            if mask_index < curr_max_frame:
+                curr_mask_indices.append(int(mask_index))
+            else:
+                mask_indices_per_patch.append((curr_patch_id, curr_mask_indices))
+                curr_mask_indices = [int(mask_index)]
+                curr_patch_id += 1
+                curr_max_frame = (patch_info[curr_patch_id]['offset'] + 
+                                  patch_info[curr_patch_id]['time_length'])
+
+        mask_indices_per_patch.append((curr_patch_id, curr_mask_indices))
+        return mask_indices_per_patch
+
+    def get_unmasked_features(self, x, mask_indices):
+        return x[:, mask_indices, :] # expects & returns B, T, C
+
+    def get_minimum_len(self, wav_lens):
+        if self.len_sorting == 'random':
+            minimum_len = min(wav_lens)
+        elif self.len_sorting == 'ascending':
+            minimum_len = wav_lens[0]
+        elif self.len_sorting == 'descending':
+            minimum_len = wav_lens[-1]
+        else:
+            raise NotImplementedError
+        return minimum_len
 
 # class W2V2Quantizer(nn.Module):
 #     def __init__(self,
@@ -657,6 +794,7 @@ class PatchAndPos(nn.Module):
 
         patches = []
         patch_info = {}
+        patch_offset = 0
         for i, patcher in enumerate(self.patcher):
             patch = patcher(x)
             if self.positional_embedding:
@@ -665,7 +803,9 @@ class PatchAndPos(nn.Module):
             
             patches.append(patch)
             patch_info[i] = {'time_length': patch.size(1), 'patch_size': patcher.get_patch_size(),
-                             'patch_stride': patcher.get_patch_stride()}
+                             'patch_stride': patcher.get_patch_stride(), 'offset': patch_offset}
+            
+            patch_offset += patch.size(1)
 
         patches = torch.cat(patches, dim=1)
 
@@ -695,7 +835,7 @@ class Patchies(nn.Module):
                 #  final_projector=Linear(n_neurons=256, input_size=768),
                 #  target_projector=Linear(n_neurons=256, input_size=256),
                 #  vector_quantizer=W2V2Quantizer(),
-                #  feat_masker=W2V2FeatureMasker(),
+                #  feat_masker=FeatureMasker(),
                 #  loss=W2V2Loss(),
                 ):
         super().__init__()
