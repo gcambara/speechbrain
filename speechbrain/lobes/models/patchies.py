@@ -370,6 +370,8 @@ class ContextExtractorBase(nn.Module):
 
         self.context_extractor = nn.Sequential(layers)
         self.layer_drop = layer_drop
+        if normalize_before:
+            self.norm = LayerNorm(input_size=d_model[-1])
 
         for module in self.modules():
             if isinstance(module, nn.Linear):
@@ -385,6 +387,9 @@ class ContextExtractorBase(nn.Module):
                 x = layer(x)[0]
                 if output_hidden_states:
                     hidden_states.append(x)
+
+        if self.norm:
+            x = self.norm(x)
 
         return x, hidden_states
 # class W2V2ContextExtractorLarge(nn.Module):
@@ -650,51 +655,19 @@ class FeatureMasker(nn.Module):
             raise NotImplementedError
         return minimum_len
 
-class DecoderBase(nn.Module):
-    """Default decoder
+class DecoderBase(ContextExtractorBase):
+    """
+    Default decoder
     """
 
-    def __init__(self,
-                 d_ffn=[2048] * 8,
-                 nhead=[8] * 8,
-                 d_model=[512] * 8,
-                 dropout=[0.1] * 8,
-                 activation=[nn.GELU] * 8,
-                 normalize_before=[True] * 8,
-                 layer_drop=0.0
-                 ):
-
-        super().__init__()
-        assert len(d_ffn) == len(nhead) == len(d_model) == len(dropout) == len(activation) == len(normalize_before), "Error! Check that input lists in the constructor have the same length."
-
-        layers = collections.OrderedDict()
-        for i in range(len(d_ffn)):
-            layers[f'trn_layer_{i}'] = TransformerEncoderLayer(d_ffn=d_ffn[i],
-                                                               nhead=nhead[i],
-                                                               d_model=d_model[i],
-                                                               dropout=dropout[i],
-                                                               activation=activation[i],
-                                                               normalize_before=normalize_before[i])
-
-        self.transformer = nn.Sequential(layers)
-        self.layer_drop = layer_drop
-
-        for module in self.modules():
-            if isinstance(module, nn.Linear):
-                module.weight.data.normal_(mean=0.0, std=0.02)
-                if module.bias is not None:
-                    module.bias.data.zero_()
-
-    def forward(self, x, output_hidden_states=False):
-        hidden_states = []
-        for layer in self.transformer:
-            layer_drop_prob = np.random.random()
-            if not self.training or (layer_drop_prob > self.layer_drop):
-                x = layer(x)[0]
-                if output_hidden_states:
-                    hidden_states.append(x)
-
-        return x, hidden_states
+    def __init__(self):
+        super().__init__(d_ffn=[2048] * 8,
+                         nhead=[8] * 8,
+                         d_model=[512] * 8,
+                         dropout=[0.1] * 8,
+                         activation=[nn.GELU] * 8,
+                         normalize_before=[True] * 8,
+                         layer_drop=0.0)
 
 # class W2V2Quantizer(nn.Module):
 #     def __init__(self,
