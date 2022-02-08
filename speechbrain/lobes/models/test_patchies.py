@@ -1,5 +1,5 @@
 import torch
-from speechbrain.lobes.models.patchies import CAPE1d, ContextExtractorBase, FeatureMasker, PatchAndPos, Patchies, PatcherLayer
+from speechbrain.lobes.models.patchies import CAPE1d, ContextExtractorBase, DecoderBase, FeatureMasker, FeatureProjector, PatchAndPos, Patchies, PatcherLayer
 
 #model = Patchies()
 
@@ -74,3 +74,14 @@ print(patch_info)
 mask, mask_indices = feat_masker.get_mask_from_bigger_patch(patches.shape, patch_info)
 print(mask_indices)
 mask_indices_per_patch = feat_masker.get_mask_indices_per_patch(mask_indices, patch_info)
+
+print("FEATURE PROJECTOR TEST")
+feat_projector = FeatureProjector()
+print(f"Encoder out shape = {y.shape}")
+y_proj = feat_projector(y)
+print(f"Encoder out projected shape = {y_proj.shape}")
+
+print("DECODER TEST")
+decoder = DecoderBase()
+y_decoded, _ = decoder(y_proj)
+print(f"Decoder out shape = {y_decoded.shape}")

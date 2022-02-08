@@ -316,6 +316,32 @@ class FbankFeaturizer(nn.Module):
 #             x = self.dropout(x)
 #         return x
 
+class FeatureProjector(nn.Module):
+    """ Feature projector
+    """
+
+    def __init__(self,
+                 n_neurons=512,
+                 input_size=768,
+                 dropout=0.1,
+                 ):
+        super().__init__()
+        self.linear = Linear(n_neurons=n_neurons, input_size=input_size)
+        if dropout > 0.0:
+            self.dropout = nn.Dropout(dropout)
+        else:
+            self.dropout = None
+
+        k = math.sqrt(1 / input_size)
+        nn.init.uniform_(self.linear.w.weight, a=-k, b=k)
+        nn.init.uniform_(self.linear.w.bias, a=-k, b=k)
+
+    def forward(self, x):
+        x = self.linear(x)
+        if self.dropout:
+            x = self.dropout(x)
+        return x
+
 class ContextExtractorBase(nn.Module):
     """Default context extractor, inspired in wav2vec2's
     """
@@ -326,7 +352,7 @@ class ContextExtractorBase(nn.Module):
                  d_model=[768] * 12,
                  dropout=[0.1] * 12,
                  activation=[nn.GELU] * 12,
-                 normalize_before=[False] * 12,
+                 normalize_before=[True] * 12,
                  layer_drop=0.05
                  ):
 
@@ -623,6 +649,52 @@ class FeatureMasker(nn.Module):
         else:
             raise NotImplementedError
         return minimum_len
+
+class DecoderBase(nn.Module):
+    """Default decoder
+    """
+
+    def __init__(self,
+                 d_ffn=[2048] * 8,
+                 nhead=[8] * 8,
+                 d_model=[512] * 8,
+                 dropout=[0.1] * 8,
+                 activation=[nn.GELU] * 8,
+                 normalize_before=[True] * 8,
+                 layer_drop=0.0
+                 ):
+
+        super().__init__()
+        assert len(d_ffn) == len(nhead) == len(d_model) == len(dropout) == len(activation) == len(normalize_before), "Error! Check that input lists in the constructor have the same length."
+
+        layers = collections.OrderedDict()
+        for i in range(len(d_ffn)):
+            layers[f'trn_layer_{i}'] = TransformerEncoderLayer(d_ffn=d_ffn[i],
+                                                               nhead=nhead[i],
+                                                               d_model=d_model[i],
+                                                               dropout=dropout[i],
+                                                               activation=activation[i],
+                                                               normalize_before=normalize_before[i])
+
+        self.transformer = nn.Sequential(layers)
+        self.layer_drop = layer_drop
+
+        for module in self.modules():
+            if isinstance(module, nn.Linear):
+                module.weight.data.normal_(mean=0.0, std=0.02)
+                if module.bias is not None:
+                    module.bias.data.zero_()
+
+    def forward(self, x, output_hidden_states=False):
+        hidden_states = []
+        for layer in self.transformer:
+            layer_drop_prob = np.random.random()
+            if not self.training or (layer_drop_prob > self.layer_drop):
+                x = layer(x)[0]
+                if output_hidden_states:
+                    hidden_states.append(x)
+
+        return x, hidden_states
 
 # class W2V2Quantizer(nn.Module):
 #     def __init__(self,
