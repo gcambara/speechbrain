@@ -54,9 +54,18 @@ class ASR(sb.core.Brain):
 
         # Forward pass
         wavs = wavs.unsqueeze(-1)
-        feats = self.modules.wav2vec2(wavs, return_latent=False, penalize_latent=False,
-                                      normalize_wav=self.hparams.normalize_wav,
-                                      output_norm=self.hparams.output_norm)['feat']
+        out = self.modules.wav2vec2(wavs, return_latent=False, penalize_latent=False,
+                                    normalize_wav=self.hparams.normalize_wav,
+                                    output_norm=self.hparams.output_norm,
+                                    output_hidden_states=self.hparams.output_hidden_states)
+        if self.hparams.output_hidden_states:
+            hidden_state_layer = self.hparams.hidden_state_layer
+            feats = out['hidden_states']
+            feats = feats[hidden_state_layer]
+            if self.hparams.output_norm:
+                feats = F.layer_norm(feats, feats.shape)
+        else:
+            feats = out['feat']
 
         x = self.modules.enc(feats)
         logits = self.modules.ctc_lin(x)
@@ -379,6 +388,7 @@ if __name__ == "__main__":
     if hparams['freeze']:
         hparams["modules"]["wav2vec2"].eval()
         hparams["modules"]["wav2vec2"].freeze()
+        hparams["modules"]["wav2vec2"].context_extractor.layer_drop = 0.0
     elif hparams['freeze_latent_extractor']:
         for name, param in hparams['modules']['wav2vec2'].named_parameters():
             if name.startswith('latent_extractor'):
