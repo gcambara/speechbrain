@@ -205,16 +205,16 @@ class ASR(sb.core.Brain):
                 stats_meta={"Epoch loaded": self.hparams.epoch_counter.current},
                 test_stats=stage_stats,
             )
-            if self.hparams.use_tensorboard:
-                self.hparams.tensorboard_train_logger.log_stats(
-                    stats_meta={
-                    "epoch": epoch,
-                    "lr_model": old_lr_model,
-                    "lr_wav2vec": old_lr_wav2vec,
-                    }, 
-                    train_stats=self.train_stats,
-                    valid_stats=stage_stats,
-                )
+            #if self.hparams.use_tensorboard:
+            #    self.hparams.tensorboard_train_logger.log_stats(
+            #        stats_meta={
+            #        "epoch": epoch,
+            #        "lr_model": old_lr_model,
+            #        "lr_wav2vec": old_lr_wav2vec,
+            #        }, 
+            #        train_stats=self.train_stats,
+            #        valid_stats=stage_stats,
+            #    )
             with open(self.hparams.wer_file, "w") as w:
                 self.wer_metric.write_stats(w)
 
