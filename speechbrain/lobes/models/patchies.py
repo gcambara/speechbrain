@@ -905,7 +905,7 @@ class PatcherLayer(nn.Module):
         patch_size is a Tuple with T, C dimensions
         patch_stride is a Tuple with T, C dimensions
     '''
-    def __init__(self, patch_size, patch_stride, embedding_dim, padding=True):
+    def __init__(self, patch_size=(16, 80), patch_stride=(16, 80), embedding_dim=768, padding=True):
         super().__init__()
         self.patch_size = patch_size
         self.patch_stride = patch_stride
@@ -988,7 +988,8 @@ class PatcherLayer(nn.Module):
 class PatchAndPos(nn.Module):
     ''' Patcher and positional embedding
     '''
-    def __init__(self, patch_sizes, patch_strides, embedding_dim, padding=True, feat_stride=0.01,
+    def __init__(self, patch_sizes=[[16, 80]], patch_strides=[[16, 80]], embedding_dim=768, 
+                 padding=True, feat_stride=0.01,
                  positional_embedding=CAPE1d(d_model=768, normalize=True, 
                                              freq_scale=10.0, batch_first=True)):
         super().__init__()
@@ -1051,7 +1052,17 @@ class Patchies(nn.Module):
     """
 
     def __init__(self,
-                 featurizer=FbankFeaturizer(n_mels=80),
+                 featurizer=FbankFeaturizer(),
+                 patcher=PatchAndPos(),
+                 target_patcher=PatcherLayer(),
+                 feat_masker=FeatureMasker(),
+                 contextualizer=ContextExtractorBase(),
+                 feat_projector=FeatureProjector(),
+                 decoder_pos_emb=CAPE1d(d_model=512, normalize=True, 
+                                        freq_scale=10.0*16.0, batch_first=True),
+                 decoder=DecoderBase(),
+                 upsampler=None,
+                 loss=ReconstructionLoss(),
                  #latent_extractor=W2V2LatentExtractor(),
                  #latent_projector=W2V2LatentProjector(),
                 #  latent_norm=LayerNorm(input_size=512),
@@ -1065,14 +1076,19 @@ class Patchies(nn.Module):
                 ):
         super().__init__()
         self.featurizer = featurizer
+        self.patcher = patcher
+        self.target_patcher = target_patcher
+        self.feat_masker = feat_masker
+        self.contextualizer = contextualizer
+        self.feat_projector = feat_projector
+        self.decoder_pos_emb = decoder_pos_emb
+        self.decoder = decoder
+        self.upsampler = upsampler
+        self.loss = loss
 
     def forward(self, wav, wav_lens=None, apply_mask=False,
-                normalize_wav=True, output_norm=False,
-                return_latent=False,
-                penalize_latent=True, 
-                do_final_projection=False,
-                latent_grad_weight=1.0):
-        """Takes an input waveform and returns its corresponding wav2vec2.0 encoding.
+                normalize_wav=True, output_norm=False):
+        """Takes an input waveform and returns its corresponding patchies encoding.
 
         Arguments
         ---------

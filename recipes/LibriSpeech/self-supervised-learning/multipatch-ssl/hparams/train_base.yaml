@@ -13,19 +13,25 @@ use_tensorboard: True
 tensorboard_logs: !ref <output_folder>/logs/
 
 # Data files
-data_folder: !PLACEHOLDER # e,g./path/to/LibriSpeech
+data_folder: /datasets/TALN/speech/eng/librispeech/audio/LibriSpeech # e,g./path/to/LibriSpeech
 # noise/ris dataset will automatically be downloaded
 data_folder_rirs: !ref <data_folder>
-train_splits: ["train-clean-100", "train-clean-360", "train-other-500"]
-dev_splits: ["dev-clean"]
-test_splits: ["test-clean", "test-other"]
+# train_splits: ["train-clean-100", "train-clean-360", "train-other-500"]
+# dev_splits: ["dev-clean"]
+# test_splits: ["test-clean", "test-other"]
+train_splits: ["test-clean"]
+dev_splits: ["test-clean"]
+test_splits: ["test-clean"]
 skip_prep: False
 ckpt_interval_minutes: 25 # save checkpoint every N min
-train_csv: !ref <output_folder>/train.csv
-valid_csv: !ref <output_folder>/dev-clean.csv
-test_csv:
-   - !ref <output_folder>/test-clean.csv
-   - !ref <output_folder>/test-other.csv
+# train_csv: !ref <output_folder>/train.csv
+# valid_csv: !ref <output_folder>/dev-clean.csv
+# test_csv:
+#    - !ref <output_folder>/test-clean.csv
+#    - !ref <output_folder>/test-other.csv
+train_csv: !ref <output_folder>/test-clean.csv
+valid_csv: !ref <output_folder>/test-clean.csv
+test_csv: !ref <output_folder>/test-clean.csv
 
 
 # We remove utterance slonger than 10s in the train/dev/test sets as
@@ -49,7 +55,6 @@ sorting: ascending
 batch_ordering: !ref <sorting>
 auto_mix_prec: False
 sample_rate: 16000
-ckpt_interval_minutes: 30 # save checkpoint every N min
 
 # With data_parallel batch_size is split into N jobs
 # With DDP batch_size is multiplied by N jobs
@@ -72,7 +77,7 @@ test_batch_size: 8
 gradient_accumulation: 16
 
 # Dynamic batching for ease of use
-dynamic_batching: True
+dynamic_batching: False
 
 dynamic_batch_sampler:
     max_batch_len: !ref <batch_seconds> # in terms of seconds
@@ -103,30 +108,58 @@ test_dataloader_opts:
 epoch_counter: !new:speechbrain.utils.epoch_loop.EpochCounter
     limit: !ref <number_of_epochs>
 
-contrastive_weight: 1.0
-diversity_weight: 0.1
-latent_l2_weight: 10.0
-wav2vec2_latent_extractor: !new:speechbrain.lobes.models.Wav2Vec2.W2V2LatentExtractor
-wav2vec2_context_extractor: !new:speechbrain.lobes.models.Wav2Vec2.W2V2ContextExtractorBase
-wav2vec2_positional_encoding: !new:speechbrain.lobes.models.Wav2Vec2.W2V2PositionalEncoding
-wav2vec2_feature_masker: !new:speechbrain.lobes.models.Wav2Vec2.W2V2FeatureMasker
-    mask_dim: 768
-    mask_prob: !ref <mask_prob>
-    mask_len: !ref <mask_length>
-    len_sorting: !ref <batch_ordering>
-wav2vec2_vector_quantizer: !new:speechbrain.lobes.models.Wav2Vec2.W2V2Quantizer
-wav2vec2_loss: !new:speechbrain.lobes.models.Wav2Vec2.W2V2Loss
-    contrastive_weight: !ref <contrastive_weight>
-    diversity_weight: !ref <diversity_weight>
-    latent_l2_weight: !ref <latent_l2_weight>
+# contrastive_weight: 1.0
+# diversity_weight: 0.1
+# latent_l2_weight: 10.0
+# wav2vec2_latent_extractor: !new:speechbrain.lobes.models.Wav2Vec2.W2V2LatentExtractor
+# wav2vec2_context_extractor: !new:speechbrain.lobes.models.Wav2Vec2.W2V2ContextExtractorBase
+# wav2vec2_positional_encoding: !new:speechbrain.lobes.models.Wav2Vec2.W2V2PositionalEncoding
+# wav2vec2_feature_masker: !new:speechbrain.lobes.models.Wav2Vec2.W2V2FeatureMasker
+#     mask_dim: 768
+#     mask_prob: !ref <mask_prob>
+#     mask_len: !ref <mask_length>
+#     len_sorting: !ref <batch_ordering>
+# wav2vec2_vector_quantizer: !new:speechbrain.lobes.models.Wav2Vec2.W2V2Quantizer
+# wav2vec2_loss: !new:speechbrain.lobes.models.Wav2Vec2.W2V2Loss
+#     contrastive_weight: !ref <contrastive_weight>
+#     diversity_weight: !ref <diversity_weight>
+#     latent_l2_weight: !ref <latent_l2_weight>
 
-wav2vec2: !new:speechbrain.lobes.models.Wav2Vec2.Wav2Vec2
-    latent_extractor:    !ref <wav2vec2_latent_extractor>
-    context_extractor:   !ref <wav2vec2_context_extractor>
-    positional_encoding: !ref <wav2vec2_positional_encoding>
-    vector_quantizer:    !ref <wav2vec2_vector_quantizer>
-    feat_masker:         !ref <wav2vec2_feature_masker>
-    loss:                !ref <wav2vec2_loss>
+# wav2vec2: !new:speechbrain.lobes.models.Wav2Vec2.Wav2Vec2
+#     latent_extractor:    !ref <wav2vec2_latent_extractor>
+#     context_extractor:   !ref <wav2vec2_context_extractor>
+#     positional_encoding: !ref <wav2vec2_positional_encoding>
+#     vector_quantizer:    !ref <wav2vec2_vector_quantizer>
+#     feat_masker:         !ref <wav2vec2_feature_masker>
+#     loss:                !ref <wav2vec2_loss>
+
+patchies: !new:speechbrain.lobes.models.patchies.Patchies
+
+activation: !name:torch.nn.LeakyReLU
+dnn_layers: 2
+dnn_neurons: 1024
+
+# enc: !new:speechbrain.lobes.models.VanillaNN.VanillaNN
+#    input_shape: [null, null, 1024]
+#    activation: !ref <activation>
+#    dnn_blocks: !ref <dnn_layers>
+#    dnn_neurons: !ref <dnn_neurons>
+
+positional_embedding: !new:speechbrain.lobes.models.patchies.CAPE1d
+    d_model: !ref <d_model>
+    max_global_shift: 0.0
+    max_local_shift: 0.0
+    max_global_scaling: 1.0
+    normalize: True
+    freq_scale: 10.0
+    batch_first: True
+
+patcher: !new:speechbrain.lobes.models.patchies.PatchAndPos
+    patch_sizes: [[16, 80], [32, 80]]
+    patch_strides: [[16, 1], [32, 1]]
+    embedding_dim: !ref <d_model>
+    feat_stride: 0.01
+    positional_embedding: !ref <positional_embedding>
 
 dynamic_distractor_sampling: False
 distractors_mask_percentage: 0.5
@@ -141,7 +174,7 @@ latent_grad_weight: 0.1
 penalize_latent: True
 
 modules:
-    wav2vec2: !ref <wav2vec2>
+    patchies: !ref <patchies>
 
 opt_class: !name:torch.optim.AdamW
     lr: 0 # Will be changed by the scheduler, but we start at 0!
@@ -157,7 +190,7 @@ noam_annealing: !new:speechbrain.nnet.schedulers.NoamScheduler
 checkpointer: !new:speechbrain.utils.checkpoints.Checkpointer
     checkpoints_dir: !ref <save_folder>
     recoverables:
-        wav2vec2: !ref <wav2vec2>
+        patchies: !ref <patchies>
         scheduler: !ref <noam_annealing>
         counter: !ref <epoch_counter>
 

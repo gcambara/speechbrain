@@ -23,7 +23,7 @@ logger = logging.getLogger(__name__)
 
 
 # Define training procedure
-class W2VBrain(sb.core.Brain):
+class PatchiesBrain(sb.core.Brain):
     def compute_forward(self, batch, stage):
         """Forward computations from the waveform batches to the w2v2 loss."""
 
@@ -38,59 +38,53 @@ class W2VBrain(sb.core.Brain):
             x_lens = None
 
         if self.distributed_launch:
-            out = self.modules.wav2vec2.module(wavs, wav_lens=x_lens,
+            out = self.modules.patchies.module(wavs, wav_lens=x_lens,
                                                normalize_wav=self.hparams.normalize_wav,
                                                output_norm=self.hparams.output_norm,
-                                               apply_mask=True, 
-                                               return_latent=False,
-                                               penalize_latent=self.hparams.penalize_latent,
-                                               do_final_projection=True,
-                                               latent_grad_weight=self.hparams.latent_grad_weight)
+                                               apply_mask=True)
         else:
-            out = self.modules.wav2vec2(wavs, wav_lens=x_lens, 
+            out = self.modules.patchies(wavs, wav_lens=x_lens, 
                                         normalize_wav=self.hparams.normalize_wav,
                                         output_norm=self.hparams.output_norm,
-                                        apply_mask=True, 
-                                        return_latent=False,
-                                        penalize_latent=self.hparams.penalize_latent,
-                                        do_final_projection=True,
-                                        latent_grad_weight=self.hparams.latent_grad_weight)
+                                        apply_mask=True)
+        exit()
 
-        feat, quant, mask_indices = out['feat'], out['quant'], out['mask_indices']
-        latent_l2_loss = out['latent_l2']
-        feat_masked = feat[:, mask_indices, :]
+        # feat, quant, mask_indices = out['feat'], out['quant'], out['mask_indices']
+        # latent_l2_loss = out['latent_l2']
+        # feat_masked = feat[:, mask_indices, :]
 
-        if quant:
-            pos_target = quant['x']
-            num_vars = quant['num_vars']
-            prob_perplexity = quant['prob_perplexity']
-        else:
-            pos_target = out['cont_target']
-            num_vars, prob_perplexity = None, None
+        # if quant:
+        #     pos_target = quant['x']
+        #     num_vars = quant['num_vars']
+        #     prob_perplexity = quant['prob_perplexity']
+        # else:
+        #     pos_target = out['cont_target']
+        #     num_vars, prob_perplexity = None, None
 
-        if self.hparams.dynamic_distractor_sampling:
-            max_num_negatives = int(len(mask_indices) * self.hparams.distractors_mask_percentage)
-            if max_num_negatives > self.hparams.max_num_negatives:
-                max_num_negatives = self.hparams.max_num_negatives
-        else:
-            max_num_negatives = self.hparams.max_num_negatives
+        # if self.hparams.dynamic_distractor_sampling:
+        #     max_num_negatives = int(len(mask_indices) * self.hparams.distractors_mask_percentage)
+        #     if max_num_negatives > self.hparams.max_num_negatives:
+        #         max_num_negatives = self.hparams.max_num_negatives
+        # else:
+        #     max_num_negatives = self.hparams.max_num_negatives
 
-        if self.distributed_launch:
-            neg_target, _ = self.modules.wav2vec2.module.sample_negatives(pos_target,
-                                                                pos_target.size(1),
-                                                                padding_count=0,
-                                                                num_negatives=max_num_negatives,
-                                                                cross_sample_negatives=self.hparams.cross_sample_negatives
-                                                                )
-        else:
-            neg_target, _ = self.modules.wav2vec2.sample_negatives(pos_target,
-                                                    pos_target.size(1),
-                                                    padding_count=0,
-                                                    num_negatives=max_num_negatives,
-                                                    cross_sample_negatives=self.hparams.cross_sample_negatives
-                                                    )
+        # if self.distributed_launch:
+        #     neg_target, _ = self.modules.wav2vec2.module.sample_negatives(pos_target,
+        #                                                         pos_target.size(1),
+        #                                                         padding_count=0,
+        #                                                         num_negatives=max_num_negatives,
+        #                                                         cross_sample_negatives=self.hparams.cross_sample_negatives
+        #                                                         )
+        # else:
+        #     neg_target, _ = self.modules.wav2vec2.sample_negatives(pos_target,
+        #                                             pos_target.size(1),
+        #                                             padding_count=0,
+        #                                             num_negatives=max_num_negatives,
+        #                                             cross_sample_negatives=self.hparams.cross_sample_negatives
+        #                                             )
 
-        return feat_masked, pos_target, neg_target, num_vars, prob_perplexity, latent_l2_loss
+        #return feat_masked, pos_target, neg_target, num_vars, prob_perplexity, latent_l2_loss
+        return out
 
     def compute_objectives(self, feat_masked, pos_target, neg_target, num_vars, prob_perplexity, 
                            latent_l2_loss, batch, stage):
@@ -433,7 +427,7 @@ if __name__ == "__main__":
     train_data, valid_data, test_data = dataio_prepare(hparams)
 
     # Trainer initialization
-    w2v_brain = W2VBrain(
+    patchies_brain = PatchiesBrain(
         modules=hparams["modules"],
         hparams=hparams,
         run_opts=run_opts,
@@ -444,8 +438,8 @@ if __name__ == "__main__":
     # Adding objects to trainer.
 
     # Training
-    w2v_brain.fit(
-        w2v_brain.hparams.epoch_counter,
+    patchies_brain.fit(
+        patchies_brain.hparams.epoch_counter,
         train_data,
         valid_data,
         train_loader_kwargs=hparams["train_dataloader_opts"],
@@ -453,8 +447,8 @@ if __name__ == "__main__":
     )
 
     # Test
-    w2v_brain.hparams.acc_file = hparams["output_folder"] + "/acc_test.txt"
-    w2v_brain.evaluate(
+    patchies_brain.hparams.acc_file = hparams["output_folder"] + "/acc_test.txt"
+    patchies_brain.evaluate(
         test_data,
         min_key="loss",
         test_loader_kwargs=hparams["test_dataloader_opts"],
