@@ -16,7 +16,7 @@ import torch.nn.functional as F
 from torch import nn
 from torch import Tensor
 from typing import Optional, Union
-from speechbrain.nnet.CNN import Conv1d
+from speechbrain.nnet.CNN import Conv1d, ConvTranspose1d
 from speechbrain.nnet.linear import Linear
 from speechbrain.nnet.normalization import GroupNorm, LayerNorm
 from speechbrain.lobes.features import Fbank
@@ -342,6 +342,44 @@ class FeatureProjector(nn.Module):
             x = self.dropout(x)
         return x
 
+class FeatureToPatchProjector(nn.Module):
+    """ Feature to patch projector
+    """
+
+    def __init__(self,
+                 patch_info,
+                 input_size=512,
+                 dropout=0.0,
+                 ):
+        super().__init__()
+        self.projectors, self.offsets = self.build_projector(input_size, patch_info)
+
+    def forward(self, x):
+        patches = []
+        for i, projector in enumerate(self.projectors):
+            offset_start = self.offsets[i]
+            if i == len(self.projectors) - 1:
+                offset_end = None
+            else:
+                offset_end = self.offsets[i + 1]
+            patch = projector(x[:, offset_start:offset_end, :])
+            patches.append(patch)
+
+        return patches
+
+    def build_projector(self, input_size, patch_info):
+        projectors = nn.ModuleList()
+        offsets = []
+        for patch_id, info in patch_info.items():
+            offset = info['offset']
+            offsets.append(offset)
+
+            time_size, channel_size = info['patch_size']
+            projector = Linear(n_neurons=time_size*channel_size, input_size=input_size)
+            projectors.append(projector)
+        
+        return projectors, offsets
+
 class ContextExtractorBase(nn.Module):
     """Default context extractor, inspired in wav2vec2's
     """
@@ -520,7 +558,7 @@ class ContextExtractorBase(nn.Module):
 
 class FeatureMasker(nn.Module):
     def __init__(self,
-                 mask_dim=768,
+                 mask_dim=512,
                  mask_prob=0.065,
                  mask_len=10,
                  len_sorting='random'):
@@ -532,8 +570,17 @@ class FeatureMasker(nn.Module):
         if self.mask_prob > 0:
             self.mask_emb = nn.Parameter(torch.FloatTensor(mask_dim).uniform_())
 
-    def forward(self, x, mask):
-        x[mask] = self.mask_emb
+    def forward(self, x, mask_indices, not_mask_indices):
+        ''' Appends the mask tokens at the correct indices. '''
+        masked_embeddings = self.mask_emb.repeat(x.shape[0], len(mask_indices), 1)
+
+        x_ = torch.cat([x[:, :, :], masked_embeddings], dim=1)
+
+        ids_restore = torch.cat([not_mask_indices, mask_indices], dim=-1)
+        ids_restore = torch.argsort(ids_restore, dim=0)
+        ids_restore = ids_restore.unsqueeze(-1).repeat(x.shape[0], 1, x.shape[2])
+        x = torch.gather(x_, dim=1, index=ids_restore)
+
         return x
 
     def get_mask(self, input_shape, wav_lens=None, force_masking=True):
@@ -561,6 +608,8 @@ class FeatureMasker(nn.Module):
 
             mask_indices = mask.nonzero()
             mask_indices = mask_indices.squeeze(-1)
+            not_mask_indices = (mask == False).nonzero()
+            not_mask_indices = not_mask_indices.squeeze(-1)
 
             if not force_masking:
                 break
@@ -570,11 +619,13 @@ class FeatureMasker(nn.Module):
 
         mask_indices = mask.nonzero()
         mask_indices = mask_indices.squeeze(-1)
+        not_mask_indices = (mask == False).nonzero()
+        not_mask_indices = not_mask_indices.squeeze(-1)
 
         mask = mask.unsqueeze(0)
         mask = mask.expand(batch_size, timesteps)
 
-        return mask, mask_indices
+        return mask, mask_indices, not_mask_indices
 
     def get_mask_from_bigger_patch(self, input_shape, patch_info, wav_lens=None,
                                    force_masking=True):
@@ -593,7 +644,7 @@ class FeatureMasker(nn.Module):
         batch_size, timesteps, channels_size = input_shape
         input_shape = torch.empty(batch_size, time_length, channels_size).shape
 
-        _, mask_indices = self.get_mask(input_shape, wav_lens=wav_lens, force_masking=force_masking)
+        _, mask_indices, not_mask_indices = self.get_mask(input_shape, wav_lens=wav_lens, force_masking=force_masking)
         
         masked_to_time_frame = (mask_indices + 1)*time_size
 
@@ -616,11 +667,13 @@ class FeatureMasker(nn.Module):
         mask = torch.cat(mask)
         mask_indices = mask.nonzero()
         mask_indices = mask_indices.squeeze(-1)
+        not_mask_indices = (mask == False).nonzero()
+        not_mask_indices = not_mask_indices.squeeze(-1)
 
         mask = mask.unsqueeze(0)
         mask = mask.expand(batch_size, timesteps)
 
-        return mask, mask_indices
+        return mask, mask_indices, not_mask_indices
 
     def get_mask_indices_per_patch(self, mask_indices, patch_info):
         mask_indices_per_patch = []
@@ -641,7 +694,22 @@ class FeatureMasker(nn.Module):
         mask_indices_per_patch.append((curr_patch_id, curr_mask_indices))
         return mask_indices_per_patch
 
-    def get_unmasked_features(self, x, mask_indices):
+    def get_masks_per_patch(self, mask, patch_info):
+        masks_per_patch = []
+        for i, info in patch_info.items():
+            offset_start = info['offset']
+            if i == len(patch_info) - 1:
+                offset_end = None
+            else:
+                offset_end = patch_info[i + 1]['offset']
+            
+            patch_mask = mask[:, offset_start:offset_end]
+            masks_per_patch.append(patch_mask)
+
+        return masks_per_patch
+
+    def get_masked_features(self, x, mask_indices):
+        ''' Gets features that are masked '''
         return x[:, mask_indices, :] # expects & returns B, T, C
 
     def get_minimum_len(self, wav_lens):
@@ -654,6 +722,16 @@ class FeatureMasker(nn.Module):
         else:
             raise NotImplementedError
         return minimum_len
+
+    def upsample_mask_indices(self, mask_indices, upsample_factor):
+        upsampled_mask_indices = []
+        for mask_index in mask_indices:
+            for i in range(upsample_factor):
+                new_mask_index = int(mask_index*upsample_factor) + i
+                upsampled_mask_indices.append(new_mask_index)
+
+        upsampled_mask_indices = torch.LongTensor(upsampled_mask_indices)
+        return upsampled_mask_indices
 
 class DecoderBase(ContextExtractorBase):
     """
@@ -668,6 +746,33 @@ class DecoderBase(ContextExtractorBase):
                          activation=[nn.GELU] * 8,
                          normalize_before=[True] * 8,
                          layer_drop=0.0)
+
+class UpsamplerConv1dBase(nn.Module):
+    ''' Basic Upsampler, it just doubles every sample by default '''
+    def __init__(self,
+                 in_channels=512,
+                 out_channels=1280,
+                 kernel_size=2,
+                 stride=2,
+                 padding=0,
+                 output_padding=0,
+                 groups=1,
+                 bias=True,
+                 dilation=1):
+        super().__init__()
+        self.upsampler = ConvTranspose1d(in_channels=in_channels,
+                                         out_channels=out_channels,
+                                         kernel_size=kernel_size,
+                                         stride=stride,
+                                         dilation=dilation,
+                                         padding=padding,
+                                         output_padding=output_padding,
+                                         groups=groups,
+                                         bias=bias)
+
+    def forward(self, x):
+        return self.upsampler(x)
+
 
 # class W2V2Quantizer(nn.Module):
 #     def __init__(self,
@@ -705,6 +810,38 @@ class DecoderBase(ContextExtractorBase):
 #         if self.dropout:
 #             x = self.dropout(x)
 #         return self.quantizer(x, produce_targets=False)
+
+class ReconstructionLoss(nn.Module):
+    def __init__(self):
+        super().__init__()
+        self.mse_loss = nn.MSELoss(reduction="mean")
+
+    def forward(self, preds, targets, masks=None):
+        '''
+        We can reconstruct different views of the same image at the
+        same time. Just pass in the preds, targets and masks for each,
+        and the average will be computed. For instance:
+        [16x80, 32x80, 64x80]
+
+        If a list with the masks is passed, selection of masked features
+        is done within this forward method.
+        Otherwise, we expect the masked features to be already passed in.
+        '''
+        patch_losses = []
+        avg_loss = 0.0
+        for i, pred in enumerate(preds):
+            target = targets[i]
+
+            if masks:
+                mask = masks[i]
+                pred = pred[mask]
+                target = target[mask]
+
+            patch_loss = self.mse_loss(pred, target)
+            avg_loss += patch_loss / len(preds)
+            patch_losses.append(patch_loss)
+        
+        return avg_loss, patch_losses
 
 # class W2V2Loss(nn.Module):
 #     def __init__(self,
@@ -768,13 +905,14 @@ class PatcherLayer(nn.Module):
         patch_size is a Tuple with T, C dimensions
         patch_stride is a Tuple with T, C dimensions
     '''
-    def __init__(self, patch_size, patch_stride, embedding_dim):
+    def __init__(self, patch_size, patch_stride, embedding_dim, padding=True):
         super().__init__()
         self.patch_size = patch_size
         self.patch_stride = patch_stride
         self.patch_and_projection = nn.Conv2d(1, embedding_dim,
                                               kernel_size=self.patch_size, 
                                               stride=self.patch_stride)
+        self.padding = padding
 
     def forward(self, x):
         ''' Input  = (B, 1, C, T) 
@@ -786,12 +924,37 @@ class PatcherLayer(nn.Module):
         assert len(x.shape) == 3, f"Error! Expected input feature dimensions are 3, but got {len(x.shape)}. Input feature shape = {x.shape}"
 
         x = x.unsqueeze(1) # B, 1, T, C
+        if self.padding:
+            x, padding = self.pad(x, pad_patch_size=self.patch_size)
+
         x = self.patch_and_projection(x).flatten(2) # B, C', T'
         x = x.transpose(1, 2) # B, T', C'
 
-        return x
+        return x, padding
 
-    def get_flat_patches(self, x):
+    def pad(self, x, pad_patch_size):
+        _, _, time_size, channel_size = x.shape
+        patch_time_size, patch_channel_size = pad_patch_size
+
+        time_remainder = time_size % patch_time_size 
+        channel_remainder = channel_size % patch_channel_size
+
+        if time_remainder != 0:
+            time_pad = patch_time_size - time_remainder
+        else:
+            time_pad = 0
+        
+        if channel_remainder != 0:
+            channel_pad = patch_channel_size - channel_remainder
+        else:
+            channel_pad = 0
+
+        padding = (0, channel_pad, time_pad, 0)
+
+        x = nn.ZeroPad2d(padding=padding)(x)
+        return x, padding
+
+    def get_flat_patches(self, x, pad_patch_size):
         ''' Input = (B, T, C)
             Output = (B, T', C')
         '''
@@ -799,7 +962,10 @@ class PatcherLayer(nn.Module):
         assert len(x.shape) == 3, f"Error! Expected input feature dimensions are 3, but got {len(x.shape)}. Input feature shape = {x.shape}"
 
         x = x.unsqueeze(1)
-        return F.unfold(x, kernel_size=self.patch_size, dilation=1, padding=0, stride=self.patch_stride)
+        if self.padding:
+            x, _ = self.pad(x, pad_patch_size=pad_patch_size)
+
+        return F.unfold(x, kernel_size=self.patch_size, dilation=1, padding=0, stride=self.patch_stride).transpose(1, 2)
 
     def get_time_size(self):
         return self.patch_size[0]
@@ -822,7 +988,7 @@ class PatcherLayer(nn.Module):
 class PatchAndPos(nn.Module):
     ''' Patcher and positional embedding
     '''
-    def __init__(self, patch_sizes, patch_strides, embedding_dim, feat_stride=0.01,
+    def __init__(self, patch_sizes, patch_strides, embedding_dim, padding=True, feat_stride=0.01,
                  positional_embedding=CAPE1d(d_model=768, normalize=True, 
                                              freq_scale=10.0, batch_first=True)):
         super().__init__()
@@ -831,7 +997,8 @@ class PatchAndPos(nn.Module):
         self.embedding_dim = embedding_dim
         self.feat_stride = feat_stride
         self.positional_embedding = positional_embedding
-        self.patcher = self.build_patcher(self.patch_sizes, self.patch_strides, self.embedding_dim)
+        self.patcher = self.build_patcher(self.patch_sizes, self.patch_strides, 
+                                          self.embedding_dim, padding=padding)
 
     def forward(self, x):
         ''' Input  = (B, T, C) 
@@ -841,14 +1008,18 @@ class PatchAndPos(nn.Module):
         patch_info = {}
         patch_offset = 0
         for i, patcher in enumerate(self.patcher):
-            patch = patcher(x)
+            patch, padding = patcher(x)
+
             if self.positional_embedding:
                 positions_delta = patcher.get_time_stride() * self.feat_stride
                 patch = self.positional_embedding(patch, positions_delta=positions_delta)
             
             patches.append(patch)
+            _, padding_channel, padding_time, _ = padding
+
             patch_info[i] = {'time_length': patch.size(1), 'patch_size': patcher.get_patch_size(),
-                             'patch_stride': patcher.get_patch_stride(), 'offset': patch_offset}
+                             'patch_stride': patcher.get_patch_stride(), 'offset': patch_offset,
+                             'padding_channel': padding_channel, 'padding_time': padding_time}
             
             patch_offset += patch.size(1)
 
@@ -856,15 +1027,24 @@ class PatchAndPos(nn.Module):
 
         return patches, patch_info
 
-    def build_patcher(self, patch_sizes, patch_strides, embedding_dim):
+    def build_patcher(self, patch_sizes, patch_strides, embedding_dim, padding):
         assert len(patch_sizes) == len(patch_strides), f"Error! The number of input patch sizes and patch strides should be the same. # patch sizes = {len(patch_sizes)}, patch strides = {len(patch_strides)}"
 
         layers = collections.OrderedDict()
         for i in range(len(patch_sizes)):
             patch_size, patch_stride = patch_sizes[i], patch_strides[i]
-            layers[f"patch_layer_{i}"] = PatcherLayer(patch_size, patch_stride, embedding_dim)
+            layers[f"patch_layer_{i}"] = PatcherLayer(patch_size, patch_stride, embedding_dim, 
+                                                      padding)
 
         return nn.Sequential(layers)
+
+    def get_flat_patches(self, x):
+        flat_patches = []
+        for i, patcher in enumerate(self.patcher):
+            flat_patch = patcher.get_flat_patches(x)
+            flat_patches.append(flat_patch)
+        return flat_patches
+
 
 class Patchies(nn.Module):
     """This lobe is patchies implementation.
