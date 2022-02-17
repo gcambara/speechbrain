@@ -1,0 +1,217 @@
+# ################################
+# Model: Patchies BASE (pretraining)
+# Authors: Guillermo Cámbara 2021
+# ################################
+
+# Seed needs to be set at top of yaml, before objects with parameters are made
+seed: 1993
+__set_seed: !!python/object/apply:torch.manual_seed [!ref <seed>]
+output_folder: !ref results/wav2vec2_pretraining/<seed>
+save_folder: !ref <output_folder>/save
+train_log: !ref <output_folder>/train_log.txt
+use_tensorboard: True
+tensorboard_logs: !ref <output_folder>/logs/
+
+# Data files
+data_folder: /datasets/TALN/speech/eng/librispeech/audio/LibriSpeech # e,g./path/to/LibriSpeech
+# noise/ris dataset will automatically be downloaded
+#data_folder_rirs: !ref <data_folder>
+# train_splits: ["train-clean-100", "train-clean-360", "train-other-500"]
+# dev_splits: ["dev-clean"]
+# test_splits: ["test-clean", "test-other"]
+train_splits: ["test-clean"]
+dev_splits: ["test-clean"]
+test_splits: ["test-clean"]
+skip_prep: False
+ckpt_interval_minutes: 25 # save checkpoint every N min
+# train_csv: !ref <output_folder>/train.csv
+# valid_csv: !ref <output_folder>/dev-clean.csv
+# test_csv:
+#    - !ref <output_folder>/test-clean.csv
+#    - !ref <output_folder>/test-other.csv
+train_csv: !ref <output_folder>/test-clean.csv
+valid_csv: !ref <output_folder>/test-clean.csv
+test_csv: !ref <output_folder>/test-clean.csv
+
+# We remove utterance slonger than 10s in the train/dev/test sets as
+# longer sentences certainly correspond to "open microphones".
+avoid_if_longer_than: 30.0
+avoid_if_shorter_than: 1.0
+
+# Model featurizer parameters
+n_mels: 80
+hop_length: 10
+
+# Patcher parameters
+max_global_shift: 0.0
+max_local_shift: 0.0
+max_global_scaling: 1.0
+normalize_pos_emb: True
+
+# Model training patch specific parameters
+patch_sizes: [[32, 80]]
+patch_strides: [[32, 80]]
+target_patch_size: [1, 80]
+feat_patch_projector_patch_size: [[1, 80]] # [!ref <target_patch_size>]
+target_patch_stride: [1, 80]
+d_model: 768
+mask_length: 2
+mask_prob: 0.065
+mask_dim: 512
+upsampling_factor: 32 # patch_size_t / target_patch_size_t
+feat_projector_dropout: 0.1
+decoder_pos_emb_freq_scale: 320 # hop_length * patch_size_t
+feat_patch_projector_dropout: 0.0
+upsampler_out_channels: 80 # only if cross mode -> target_patch_size_t * target_patch_size_c
+
+# Training generic parameters
+number_of_epochs: 100
+lr: 2.0 # This will get reduced by the training scheduler
+warmup: 25000
+weight_decay: 0.01
+sorting: ascending
+batch_ordering: !ref <sorting>
+auto_mix_prec: False
+sample_rate: 16000
+
+batch_size: 12
+batch_seconds: 50.0
+test_batch_size: 8
+gradient_accumulation: 16
+freeze: False
+
+# Dynamic batching for ease of use
+dynamic_batching: False
+
+dynamic_batch_sampler:
+    max_batch_len: !ref <batch_seconds> # in terms of seconds
+    left_bucket_len: 1.0
+    multiplier: 1.2
+    shuffle_ex: False # re-create batches at each epoch shuffling examples?
+    batch_ordering: !ref <batch_ordering>
+
+dont_mask_padding: True
+num_workers: 2
+train_dataloader_opts:
+   batch_size: !ref <batch_size>
+   num_workers: !ref <num_workers>
+
+valid_dataloader_opts:
+   batch_size: !ref <batch_size>
+   num_workers: !ref <num_workers>
+
+test_dataloader_opts:
+   batch_size: !ref <test_batch_size>
+   num_workers: !ref <num_workers>
+
+#
+# Functions and classes
+#
+epoch_counter: !new:speechbrain.utils.epoch_loop.EpochCounter
+    limit: !ref <number_of_epochs>
+
+featurizer: !new:speechbrain.lobes.models.patchies.FbankFeaturizer
+    n_mels: !ref <n_mels>
+    hop_length: !ref <hop_length>
+
+positional_embedding: !new:speechbrain.lobes.models.patchies.CAPE1d
+    d_model: !ref <d_model>
+    max_global_shift: !ref <max_global_shift>
+    max_local_shift: !ref <max_local_shift>
+    max_global_scaling: !ref <max_global_scaling>
+    normalize: !ref <normalize_pos_emb>
+    freq_scale: !ref <hop_length>
+    batch_first: True
+
+patcher: !new:speechbrain.lobes.models.patchies.PatchAndPos
+    patch_sizes: !ref <patch_sizes>
+    patch_strides: !ref <patch_strides>
+    embedding_dim: !ref <d_model>
+    feat_stride: !ref <hop_length>
+    positional_embedding: !ref <positional_embedding>
+
+target_patcher: !new:speechbrain.lobes.models.patchies.PatcherLayer
+    patch_size: !ref <target_patch_size>
+    patch_stride: !ref <target_patch_stride>
+    embedding_dim: !ref <d_model>
+    padding: True
+
+feature_masker: !new:speechbrain.lobes.models.patchies.FeatureMasker
+    mask_dim: !ref <mask_dim>
+    mask_prob: !ref <mask_prob>
+    mask_len: !ref <mask_length>
+    len_sorting: !ref <batch_ordering>
+
+contextualizer: !new:speechbrain.lobes.models.patchies.ContextExtractorBase
+
+feature_projector: !new:speechbrain.lobes.models.patchies.FeatureProjector
+    n_neurons: !ref <mask_dim>
+    input_size: !ref <d_model>
+    dropout: !ref <feat_projector_dropout>
+
+decoder_pos_emb: !new:speechbrain.lobes.models.patchies.CAPE1d
+    d_model: !ref <mask_dim>
+    max_global_shift: !ref <max_global_shift>
+    max_local_shift: !ref <max_local_shift>
+    max_global_scaling: !ref <max_global_scaling>
+    normalize: !ref <normalize_pos_emb>
+    freq_scale: !ref <decoder_pos_emb_freq_scale>
+    batch_first: True
+
+decoder: !new:speechbrain.lobes.models.patchies.DecoderBase
+
+upsampler: !new:speechbrain.lobes.models.patchies.UpsamplerConv1dBase
+    in_channels: !ref <mask_dim>
+    out_channels: !ref <upsampler_out_channels>
+    kernel_size: !ref <upsampling_factor>
+    stride: !ref <upsampling_factor>
+    padding: 0
+    output_padding: 0
+    groups: 1
+    bias: True
+    dilation: 1
+
+feat_to_patch_projector: null
+
+loss: !new:speechbrain.lobes.models.patchies.ReconstructionLoss
+
+patchies: !new:speechbrain.lobes.models.patchies.Patchies
+    featurizer: !ref <featurizer>
+    patcher: !ref <patcher>
+    target_patcher: !ref <target_patcher>
+    feat_masker: !ref <feature_masker>
+    contextualizer: !ref <contextualizer>
+    feat_projector: !ref <feature_projector>
+    decoder_pos_emb: !ref <decoder_pos_emb>
+    decoder: !ref <decoder>
+    upsampler: !ref <upsampler>
+    feat_to_patch_projector: !ref <feat_to_patch_projector>
+    loss: !ref <loss>
+
+dynamic_distractor_sampling: False
+normalize_wav: True
+output_norm: False
+
+modules:
+    patchies: !ref <patchies>
+
+opt_class: !name:torch.optim.AdamW
+    lr: 0 # Will be changed by the scheduler, but we start at 0!
+    betas: (0.9, 0.98)
+    eps: 0.000000001
+    weight_decay: !ref <weight_decay>
+
+noam_annealing: !new:speechbrain.nnet.schedulers.NoamScheduler
+    lr_initial: !ref <lr>
+    n_warmup_steps: !ref <warmup>
+    model_size: !ref <d_model>
+
+checkpointer: !new:speechbrain.utils.checkpoints.Checkpointer
+    checkpoints_dir: !ref <save_folder>
+    recoverables:
+        patchies: !ref <patchies>
+        scheduler: !ref <noam_annealing>
+        counter: !ref <epoch_counter>
+
+train_logger: !new:speechbrain.utils.train_logger.FileTrainLogger
+    save_file: !ref <train_log>

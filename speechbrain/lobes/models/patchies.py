@@ -22,16 +22,6 @@ from speechbrain.nnet.normalization import GroupNorm, LayerNorm
 from speechbrain.lobes.features import Fbank
 from speechbrain.lobes.models.transformer.Transformer import TransformerEncoderLayer
 
-# class GradMultiply(torch.autograd.Function):
-#     @staticmethod
-#     def forward(ctx, x, scale):
-#         ctx.scale = scale
-#         res = x.new(x)
-#         return res
-
-#     @staticmethod
-#     def backward(ctx, grad):
-#         return grad * ctx.scale, None
 class CAPE1d(nn.Module):
     def __init__(self, d_model: int, max_global_shift: float = 0.0, max_local_shift: float = 0.0,
                  max_global_scaling: float = 1.0, normalize: bool = False, freq_scale: float = 1.0,
@@ -238,83 +228,16 @@ class FbankFeaturizer(nn.Module):
 
     def __init__(self,
                  n_mels=80,
+                 hop_length=10,
                  ):
 
         super().__init__()
-        self.featurizer = Fbank(n_mels=n_mels)
+        self.hop_length = hop_length
+        self.featurizer = Fbank(n_mels=n_mels, hop_length=hop_length)
 
     def forward(self, x):
         x = x.squeeze(-1)
         return self.featurizer(x)
-
-# class W2V2LatentExtractor(nn.Module):
-#     """wav2vec2.0 default latent extractor
-#     """
-
-#     def __init__(self,
-#                  in_channels=[1, 512, 512, 512, 512, 512, 512],
-#                  out_channels=[512] * 7,
-#                  kernel_size=[10, 3, 3, 3, 3, 2, 2],
-#                  stride=[5, 2, 2, 2, 2, 2, 2],
-#                  bias=[False] * 7,
-#                  norms=[GroupNorm(num_groups=512, input_size=512, affine=True)] + [None] * 6,
-#                  acts=[nn.GELU()] * 7,
-#                  init='kaiming',
-#                  ):
-
-#         super().__init__()
-#         assert len(in_channels) == len(out_channels) == len(kernel_size) == len(stride) == len(norms) == len(acts), "Error! Check that input lists in the constructor have the same length."
-
-#         blocks = collections.OrderedDict()
-#         for i in range(len(in_channels)):
-#             conv_block = collections.OrderedDict()
-
-#             conv = Conv1d(out_channels=out_channels[i],
-#                           kernel_size=kernel_size[i],
-#                           in_channels=in_channels[i],
-#                           stride=stride[i],
-#                           bias=bias[i])
-#             if init == 'kaiming':
-#                 nn.init.kaiming_normal_(conv.conv.weight)
-#             conv_block[f'conv1d_{i}'] = conv
-
-#             if norms[i]:
-#                 conv_block[f'norm_{i}'] = norms[i]
-
-#             conv_block[f'activation_{i}'] = acts[i]
-
-#             blocks[f'conv_block_{i}'] = nn.Sequential(conv_block)
-
-#         self.latent_extractor = nn.Sequential(blocks)
-
-#     def forward(self, x):
-#         return self.latent_extractor(x)
-
-# class W2V2LatentProjector(nn.Module):
-#     """wav2vec2.0 default latent projector
-#     """
-
-#     def __init__(self,
-#                  n_neurons=768,
-#                  input_size=512,
-#                  dropout=0.1,
-#                  ):
-#         super().__init__()
-#         self.linear = Linear(n_neurons=n_neurons, input_size=input_size)
-#         if dropout > 0.0:
-#             self.dropout = nn.Dropout(dropout)
-#         else:
-#             self.dropout = None
-
-#         k = math.sqrt(1 / input_size)
-#         nn.init.uniform_(self.linear.w.weight, a=-k, b=k)
-#         nn.init.uniform_(self.linear.w.bias, a=-k, b=k)
-
-#     def forward(self, x):
-#         x = self.linear(x)
-#         if self.dropout:
-#             x = self.dropout(x)
-#         return x
 
 class FeatureProjector(nn.Module):
     """ Feature projector
@@ -347,38 +270,38 @@ class FeatureToPatchProjector(nn.Module):
     """
 
     def __init__(self,
-                 patch_info,
+                 patch_sizes,
                  input_size=512,
                  dropout=0.0,
                  ):
         super().__init__()
-        self.projectors, self.offsets = self.build_projector(input_size, patch_info)
+        self.projectors = self.build_projector(input_size, patch_sizes)
 
-    def forward(self, x):
+    def forward(self, x, patch_info):
         patches = []
         for i, projector in enumerate(self.projectors):
-            offset_start = self.offsets[i]
+            offset_start = patch_info[i]['offset']#self.offsets[i]
             if i == len(self.projectors) - 1:
                 offset_end = None
             else:
-                offset_end = self.offsets[i + 1]
+                offset_end = patch_info[i + 1]['offset']
             patch = projector(x[:, offset_start:offset_end, :])
             patches.append(patch)
 
         return patches
 
-    def build_projector(self, input_size, patch_info):
+    def build_projector(self, input_size, patch_sizes):
         projectors = nn.ModuleList()
-        offsets = []
-        for patch_id, info in patch_info.items():
-            offset = info['offset']
-            offsets.append(offset)
+        #offsets = []
+        for patch_size in patch_sizes:
+            #offset = info['offset']
+            #offsets.append(offset)
 
-            time_size, channel_size = info['patch_size']
+            time_size, channel_size = patch_size
             projector = Linear(n_neurons=time_size*channel_size, input_size=input_size)
             projectors.append(projector)
         
-        return projectors, offsets
+        return projectors
 
 class ContextExtractorBase(nn.Module):
     """Default context extractor, inspired in wav2vec2's
@@ -430,137 +353,12 @@ class ContextExtractorBase(nn.Module):
             x = self.norm(x)
 
         return x, hidden_states
-# class W2V2ContextExtractorLarge(nn.Module):
-#     def __init__(self):
-#         self.context_extractor = W2V2ContextExtractorBase(d_ffn=[4096] * 24,
-#                                                           nhead=[16] * 24,
-#                                                           d_model=[1024] * 24,
-#                                                           dropout=[0.1] * 24,
-#                                                           activation=[nn.GELU()] * 24,
-#                                                           normalize_before=[False] * 24
-#                                                           )
-
-#     def forward(self, x):
-#         for layer in self.context_extractor:
-#             x = layer(x)[0]
-#         return x
-
-# class W2V2PositionalEncoding(nn.Module):
-#     def __init__(self,
-#                  in_channels=768,
-#                  kernel_size=128,
-#                  stride=1,
-#                  padding=128 // 2,
-#                  groups=16,
-#                  act=nn.GELU()
-#                  ):
-#         super().__init__()
-#         self.positional_encoding = nn.Conv1d(in_channels=in_channels,
-#                                              out_channels=in_channels,
-#                                              kernel_size=kernel_size,
-#                                              stride=stride,
-#                                              padding=padding,
-#                                              groups=groups
-#                                             )
-
-#         std = math.sqrt(4 / (kernel_size * in_channels))
-#         nn.init.normal_(self.positional_encoding.weight, mean=0, std=std)
-#         nn.init.constant_(self.positional_encoding.bias, 0)
-#         self.positional_encoding = nn.utils.weight_norm(self.positional_encoding, 
-#                                                         name="weight", 
-#                                                         dim=2)
-#         self.act = act
-#         self.remove = 1 if kernel_size % 2 == 0 else 0
-
-#     def forward(self, x):
-#         x = x.transpose(1, 2)
-#         x = self.positional_encoding(x)
-
-#         if self.remove > 0:
-#             x = x[:, :, : - self.remove]
-
-#         x = self.act(x)
-#         x = x.transpose(1, 2)
-
-#         return x
-
-# class FeatureMasker(nn.Module):
-#     def __init__(self,
-#                  mask_dim=768,
-#                  mask_prob=0.065,
-#                  mask_len=10,
-#                  len_sorting='random'):
-#         super().__init__()
-#         self.mask_prob = mask_prob
-#         self.mask_len = mask_len
-#         self.len_sorting = len_sorting
-
-#         if self.mask_prob > 0:
-#             self.mask_emb = nn.Parameter(torch.FloatTensor(mask_dim).uniform_())
-
-#     def forward(self, x, mask):
-#         x[mask] = self.mask_emb
-#         return x
-
-#     def get_mask(self, input_shape, wav_lens=None, force_masking=True):
-#         ''' The same mask is applied to every sample in the batch 
-#             Wav lens indicates the percentage of unpadded samples within
-#             each wav in the batch, can be used to ignore padded samples.
-#             We assume right padding.'''
-
-#         batch_size, timesteps = input_shape[0], input_shape[1]
-
-#         mask_indices = []
-#         while len(mask_indices) == 0: # if force_masking is set, loop until a mask is generated
-#             if wav_lens is not None:
-#                 minimum_len = self.get_minimum_len(wav_lens)
-#                 minimum_len = int(minimum_len * timesteps)
-#                 max_min_diff = timesteps - minimum_len
-#                 mask = torch.rand(minimum_len - self.mask_len)
-#             else:
-#                 mask = torch.rand(timesteps - self.mask_len)
-#                 max_min_diff = 0
-
-#             mask = torch.where(mask < self.mask_prob, True, False)
-#             mask = torch.cat((mask, torch.zeros((self.mask_len + max_min_diff),
-#                               dtype=bool)), dim=0)
-
-#             mask_indices = mask.nonzero()
-#             mask_indices = mask_indices.squeeze(-1)
-
-#             if not force_masking:
-#                 break
-
-#         for timestep in mask_indices:
-#             mask[timestep:timestep + self.mask_len] = True
-
-#         mask_indices = mask.nonzero()
-#         mask_indices = mask_indices.squeeze(-1)
-
-#         mask = mask.unsqueeze(0)
-#         mask = mask.expand(batch_size, timesteps)
-
-#         return mask, mask_indices
-
-#     def get_unmasked_features(self, x, mask_indices):
-#         return x[:, mask_indices, :] # expects & returns B, T, C
-
-#     def get_minimum_len(self, wav_lens):
-#         if self.len_sorting == 'random':
-#             minimum_len = min(wav_lens)
-#         elif self.len_sorting == 'ascending':
-#             minimum_len = wav_lens[0]
-#         elif self.len_sorting == 'descending':
-#             minimum_len = wav_lens[-1]
-#         else:
-#             raise NotImplementedError
-#         return minimum_len
 
 class FeatureMasker(nn.Module):
     def __init__(self,
                  mask_dim=512,
                  mask_prob=0.065,
-                 mask_len=10,
+                 mask_len=2,
                  len_sorting='random'):
         super().__init__()
         self.mask_prob = mask_prob
@@ -572,6 +370,9 @@ class FeatureMasker(nn.Module):
 
     def forward(self, x, mask_indices, not_mask_indices):
         ''' Appends the mask tokens at the correct indices. '''
+        mask_indices = mask_indices.to(x.device)
+        not_mask_indices = not_mask_indices.to(x.device)
+        
         masked_embeddings = self.mask_emb.repeat(x.shape[0], len(mask_indices), 1)
 
         x_ = torch.cat([x[:, :, :], masked_embeddings], dim=1)
@@ -773,44 +574,6 @@ class UpsamplerConv1dBase(nn.Module):
     def forward(self, x):
         return self.upsampler(x)
 
-
-# class W2V2Quantizer(nn.Module):
-#     def __init__(self,
-#                  dim=512,
-#                  num_vars=320,
-#                  temp=(2, 0.5, 0.999995),
-#                  groups=2,
-#                  combine_groups=False,
-#                  vq_dim=256,
-#                  time_first=True,
-#                  activation=nn.GELU(),
-#                  weight_proj_depth=1,
-#                  weight_proj_factor=3,
-#                  input_dropout=0.1
-#                  ):
-#         super().__init__()
-#         self.quantizer = GumbelVectorQuantizer(dim=dim,
-#                                                num_vars=num_vars,
-#                                                temp=temp,
-#                                                groups=groups,
-#                                                combine_groups=combine_groups,
-#                                                vq_dim=vq_dim,
-#                                                time_first=time_first,
-#                                                activation=activation,
-#                                                weight_proj_depth=weight_proj_depth,
-#                                                weight_proj_factor=weight_proj_factor,
-#                                               )
-
-#         if input_dropout > 0.0:
-#             self.dropout = nn.Dropout(input_dropout)
-#         else:
-#             self.dropout = None
-
-#     def forward(self, x):
-#         if self.dropout:
-#             x = self.dropout(x)
-#         return self.quantizer(x, produce_targets=False)
-
 class ReconstructionLoss(nn.Module):
     def __init__(self):
         super().__init__()
@@ -842,63 +605,6 @@ class ReconstructionLoss(nn.Module):
             patch_losses.append(patch_loss)
         
         return avg_loss, patch_losses
-
-# class W2V2Loss(nn.Module):
-#     def __init__(self,
-#                  contrastive_loss=nn.CrossEntropyLoss(reduction='sum'),
-#                  contrastive_weight=1.0,
-#                  diversity_weight=0.1,
-#                  latent_l2_weight=10.0,
-#                  similarity=nn.CosineSimilarity(dim=-1),
-#                  temp=0.1):
-#         super().__init__()
-
-#         self.contrastive_loss = contrastive_loss
-#         self.contrastive_weight = contrastive_weight
-#         self.diversity_weight = diversity_weight
-#         self.latent_l2_weight = latent_l2_weight
-#         self.similarity = similarity
-#         self.temp = temp
-
-#     def forward(self, feat, pos_target, neg_target, num_vars,
-#                 prob_perplexity, latent_l2):
-#         loss = 0.0
-#         if self.contrastive_weight:
-#             logits = self.compute_logits(feat, pos_target, neg_target)
-#             target = logits.new_zeros(logits.size(0), dtype=torch.long)
-#             contrastive_loss = self.contrastive_loss(logits, target)
-#             loss += self.contrastive_weight * contrastive_loss
-#         else:
-#             logits, contrastive_loss = None, None
-
-#         if self.diversity_weight:
-#             diversity_loss = (num_vars - prob_perplexity) / num_vars
-#             loss += self.diversity_weight * diversity_loss
-#         else:
-#             diversity_loss = None
-
-#         if self.latent_l2_weight:
-#             loss += self.latent_l2_weight * latent_l2
-#         else:
-#             latent_l2 = None
-
-#         return {'loss': loss, 'contrastive_loss': contrastive_loss,
-#                 'diversity_loss': diversity_loss,
-#                 'latent_l2_loss': latent_l2,
-#                 'logits': logits, 'target': target}
-
-#     def compute_logits(self, feat, pos_target, neg_target):
-#         pos_target = pos_target.unsqueeze(0)
-#         target = torch.cat([pos_target, neg_target], dim=0)
-#         logits = self.similarity(feat, target) / self.temp # (distr + 1, bsz, masked_feats)
-
-#         neg_is_pos = (pos_target == neg_target).all(-1)
-#         if neg_is_pos.any():
-#             logits[1:][neg_is_pos] = float("-inf")
-
-#         logits = logits.transpose(0, 2).reshape(-1, logits.size(0)) # (bsz x masked_feats, distr + 1)
-
-#         return logits
 
 class PatcherLayer(nn.Module):
     ''' Patcher layer. 
@@ -989,14 +695,14 @@ class PatchAndPos(nn.Module):
     ''' Patcher and positional embedding
     '''
     def __init__(self, patch_sizes=[[16, 80]], patch_strides=[[16, 80]], embedding_dim=768, 
-                 padding=True, feat_stride=0.01,
+                 padding=True, feat_stride=10.0,
                  positional_embedding=CAPE1d(d_model=768, normalize=True, 
                                              freq_scale=10.0, batch_first=True)):
         super().__init__()
         self.patch_sizes = patch_sizes
         self.patch_strides = patch_strides
         self.embedding_dim = embedding_dim
-        self.feat_stride = feat_stride
+        self.feat_stride = feat_stride * 0.001 # feat stride input is in ms, convert it to seconds
         self.positional_embedding = positional_embedding
         self.patcher = self.build_patcher(self.patch_sizes, self.patch_strides, 
                                           self.embedding_dim, padding=padding)
@@ -1062,17 +768,8 @@ class Patchies(nn.Module):
                                         freq_scale=10.0*16.0, batch_first=True),
                  decoder=DecoderBase(),
                  upsampler=None,
+                 feat_to_patch_projector=FeatureToPatchProjector([[16, 80]]),
                  loss=ReconstructionLoss(),
-                 #latent_extractor=W2V2LatentExtractor(),
-                 #latent_projector=W2V2LatentProjector(),
-                #  latent_norm=LayerNorm(input_size=512),
-                #  positional_encoding=W2V2PositionalEncoding(),
-                #  context_extractor=W2V2ContextExtractorBase(),
-                #  final_projector=Linear(n_neurons=256, input_size=768),
-                #  target_projector=Linear(n_neurons=256, input_size=256),
-                #  vector_quantizer=W2V2Quantizer(),
-                #  feat_masker=FeatureMasker(),
-                #  loss=W2V2Loss(),
                 ):
         super().__init__()
         self.featurizer = featurizer
@@ -1084,10 +781,13 @@ class Patchies(nn.Module):
         self.decoder_pos_emb = decoder_pos_emb
         self.decoder = decoder
         self.upsampler = upsampler
+        self.feat_to_patch_projector = feat_to_patch_projector
         self.loss = loss
 
+        self.featurizer_hop_length = featurizer.hop_length / 1000.0 # in seconds
+
     def forward(self, wav, wav_lens=None, apply_mask=False,
-                normalize_wav=True, output_norm=False):
+                normalize_wav=True, output_norm=False, stage='inference'):
         """Takes an input waveform and returns its corresponding patchies encoding.
 
         Arguments
@@ -1099,59 +799,55 @@ class Patchies(nn.Module):
             wav = F.layer_norm(wav, normalized_shape=wav.shape[1:])
 
         feat = self.featurizer(wav)
+        #print(f"FBANK shape = {feat.shape}")
 
-        # if latent_grad_weight != 1.0:
-        #     feat = GradMultiply.apply(feat, latent_grad_weight)
+        if stage == 'train':
+            target_patches = self.target_patcher.get_flat_patches(feat, 
+                                                                  self.patcher.patch_sizes[-1])
+        #print(f"Target patch shape = {target_patches.shape}")
+        feat, patch_info = self.patcher(feat)
+        #print(f"Patches shape = {feat.shape}")
 
-        # if penalize_latent:
-        #     latent_l2 = feat.float().pow(2).mean()
-        # else:
-        #     latent_l2 = None
+        if stage == 'train':
+            mask, mask_indices, not_mask_indices = self.feat_masker.get_mask(feat.shape, wav_lens=wav_lens)
+            #print(f"Mask shape = {mask.shape}")
+            #print(f"Mask indices = {mask_indices}")
+            #print(f"Not mask indices = {not_mask_indices}")
+            unmasked_feat = self.feat_masker.get_masked_features(feat, not_mask_indices)
+            masked_feat = self.feat_masker.get_masked_features(feat, mask_indices)
 
-        # feat = self.latent_norm(feat)
+            #print(f"unmasked_feat shape = {unmasked_feat.shape}")
+            #print(f"masked_feat shape = {masked_feat.shape}")
 
-        # if apply_mask:
-        #     mask, mask_indices = self.feat_masker.get_mask(feat.shape, wav_lens)
-        #     unmasked_feats = self.feat_masker.get_unmasked_features(feat, mask_indices)
+            unmasked_feat, hidden_states = self.contextualizer(unmasked_feat)
 
-        #     if self.vector_quantizer:
-        #         quant = self.vector_quantizer(unmasked_feats)
+            unmasked_feat = self.feat_projector(unmasked_feat)
+            #print(f"projected unmasked_feat shape = {unmasked_feat.shape}")
+            feat = self.feat_masker(unmasked_feat, mask_indices, not_mask_indices)
+            #print(f"feat shape = {feat.shape}")
 
-        #         if self.target_projector:
-        #             quant['x'] = self.target_projector(quant['x'])
-        #         cont_target = None
-        #     else:
-        #         if self.target_projector:
-        #             cont_target = self.target_projector(unmasked_feats)
-        #         quant = None
-        # else:
-        #     mask_indices, quant, cont_target = None, None, None
+            positions_delta = (self.featurizer_hop_length * 
+                               self.patcher.patch_sizes[-1][0]) # get patch size T. watch out for multires patch!
+            #print(f"Positions delta = {positions_delta}")
+            feat = self.decoder_pos_emb(feat, positions_delta=positions_delta)
+            #print(f"feat w pos emb shape = {feat.shape}")
 
-        # if self.latent_projector:
-        #     feat = self.latent_projector(feat)
+            feat, _ = self.decoder(feat)
 
-        # if return_latent:
-        #     latent = feat.clone()
-        # else:
-        #     latent = None
-
-        # if apply_mask:
-        #     feat = self.feat_masker(feat, mask)
-
-        # if self.positional_encoding:
-        #     feat += self.positional_encoding(feat)
-        # feat = self.context_extractor(feat)
-
-        # if self.final_projector and do_final_projection:
-        #     feat = self.final_projector(feat)
+            if self.upsampler:
+                feat = self.upsampler(feat)
+            elif self.feat_to_patch_projector:
+                feat = self.feat_to_patch_projector(feat, patch_info)[0] #gcambara: we are working with single patching, for now
+        elif stage == 'inference':
+            feat, hidden_states = self.contextualizer(feat)
+        else:
+            raise NotImplementedError
 
         if output_norm:
             feat = F.layer_norm(feat, feat.shape)
 
-        return {'feat': feat}
-        # return {'feat': feat, 'latent': latent, 'quant': quant,
-        #         'latent_l2': latent_l2,
-        #         'cont_target': cont_target, 'mask_indices': mask_indices}
+        return {'feat': feat, 'mask_indices': mask_indices, 'not_mask_indices': not_mask_indices,
+                'target_patches': target_patches}
 
     def sample_negatives(self, y, num, padding_count=None, num_negatives=100, cross_sample_negatives=0):
         if num_negatives == 0 and cross_sample_negatives == 0:

@@ -41,79 +41,34 @@ class PatchiesBrain(sb.core.Brain):
             out = self.modules.patchies.module(wavs, wav_lens=x_lens,
                                                normalize_wav=self.hparams.normalize_wav,
                                                output_norm=self.hparams.output_norm,
-                                               apply_mask=True)
+                                               apply_mask=True, stage='train')
         else:
             out = self.modules.patchies(wavs, wav_lens=x_lens, 
                                         normalize_wav=self.hparams.normalize_wav,
                                         output_norm=self.hparams.output_norm,
-                                        apply_mask=True)
-        exit()
+                                        apply_mask=True, stage='train')
 
-        # feat, quant, mask_indices = out['feat'], out['quant'], out['mask_indices']
-        # latent_l2_loss = out['latent_l2']
-        # feat_masked = feat[:, mask_indices, :]
+        feat, mask_indices, not_mask_indices, target_patches = out['feat'], out['mask_indices'], out['not_mask_indices'], out['target_patches']
 
-        # if quant:
-        #     pos_target = quant['x']
-        #     num_vars = quant['num_vars']
-        #     prob_perplexity = quant['prob_perplexity']
-        # else:
-        #     pos_target = out['cont_target']
-        #     num_vars, prob_perplexity = None, None
+        if self.hparams.upsampling_factor > 1:
+            mask_indices = self.modules.patchies.feat_masker.upsample_mask_indices(mask_indices, self.hparams.upsampling_factor)
 
-        # if self.hparams.dynamic_distractor_sampling:
-        #     max_num_negatives = int(len(mask_indices) * self.hparams.distractors_mask_percentage)
-        #     if max_num_negatives > self.hparams.max_num_negatives:
-        #         max_num_negatives = self.hparams.max_num_negatives
-        # else:
-        #     max_num_negatives = self.hparams.max_num_negatives
+        pred_masked = self.modules.patchies.feat_masker.get_masked_features(feat, mask_indices)
+        target_masked = self.modules.patchies.feat_masker.get_masked_features(target_patches, mask_indices)
 
-        # if self.distributed_launch:
-        #     neg_target, _ = self.modules.wav2vec2.module.sample_negatives(pos_target,
-        #                                                         pos_target.size(1),
-        #                                                         padding_count=0,
-        #                                                         num_negatives=max_num_negatives,
-        #                                                         cross_sample_negatives=self.hparams.cross_sample_negatives
-        #                                                         )
-        # else:
-        #     neg_target, _ = self.modules.wav2vec2.sample_negatives(pos_target,
-        #                                             pos_target.size(1),
-        #                                             padding_count=0,
-        #                                             num_negatives=max_num_negatives,
-        #                                             cross_sample_negatives=self.hparams.cross_sample_negatives
-        #                                             )
+        return feat, pred_masked, target_masked
 
-        #return feat_masked, pos_target, neg_target, num_vars, prob_perplexity, latent_l2_loss
-        return out
-
-    def compute_objectives(self, feat_masked, pos_target, neg_target, num_vars, prob_perplexity, 
-                           latent_l2_loss, batch, stage):
+    def compute_objectives(self, pred_masked, target_masked, batch, stage):
         """Computes the loss given predictions and targets."""
 
         ids = batch.id
-
+        
         if self.distributed_launch:
-            loss_dict = self.modules.wav2vec2.module.loss(feat_masked, pos_target, neg_target, 
-                                                num_vars, prob_perplexity, latent_l2_loss)
+            avg_loss, patch_losses = self.modules.patchies.module.loss([pred_masked], [target_masked])
         else:
-            loss_dict = self.modules.wav2vec2.loss(feat_masked, pos_target, neg_target, 
-                                                num_vars, prob_perplexity, latent_l2_loss)
-        logits = loss_dict['logits']
-        target = loss_dict['target']
+            avg_loss, patch_losses = self.modules.patchies.loss([pred_masked], [target_masked])
 
-        # Compute Accuracy using MetricStats
-        self.acc_metric.append(
-            ids, predict=logits, target=target, lengths=None
-        )
-
-        if loss_dict['contrastive_loss']:
-            self.loss_metric_contrastive.append(loss_dict['contrastive_loss'])
-        if loss_dict['diversity_loss']:
-            self.loss_metric_diversity.append(loss_dict['diversity_loss'])
-        if loss_dict['latent_l2_loss']:
-            self.loss_metric_diversity.append(loss_dict['latent_l2_loss'])
-
-        return loss_dict
+        return avg_loss
 
     def fit_batch(self, batch):
         """Train the parameters given a single batch in input"""
@@ -121,11 +76,8 @@ class PatchiesBrain(sb.core.Brain):
         # Here we manage mixed precision
         if self.auto_mix_prec:
             with torch.cuda.amp.autocast():
-                feat_masked, pos_target, neg_target, num_vars, prob_perplexity, latent_l2_loss = self.compute_forward(batch, sb.Stage.TRAIN)
-                loss_dict = self.compute_objectives(feat_masked, pos_target, neg_target, num_vars,
-                                                    prob_perplexity, latent_l2_loss,
-                                                    batch, sb.Stage.TRAIN)
-                loss = loss_dict['loss']
+                feat, pred_masked, target_masked = self.compute_forward(batch, sb.Stage.TRAIN)
+                loss = self.compute_objectives(pred_masked, target_masked, batch, sb.Stage.TRAIN)
 
             # normalize the loss by gradient_accumulation step
             self.scaler.scale(
@@ -144,12 +96,9 @@ class PatchiesBrain(sb.core.Brain):
                 # anneal lr every update
                 self.hparams.noam_annealing(self.optimizer)
         else:
-            feat_masked, pos_target, neg_target, num_vars, prob_perplexity, latent_l2_loss = self.compute_forward(batch, sb.Stage.TRAIN)
+            feat, pred_masked, target_masked = self.compute_forward(batch, sb.Stage.TRAIN)
 
-            loss_dict = self.compute_objectives(feat_masked, pos_target, neg_target, num_vars,
-                                                prob_perplexity, latent_l2_loss,
-                                                batch, sb.Stage.TRAIN)
-            loss = loss_dict['loss']
+            loss = self.compute_objectives(pred_masked, target_masked, batch, sb.Stage.TRAIN)
 
             # normalize the loss by gradient_accumulation step
             (loss / self.hparams.gradient_accumulation).backward()
@@ -166,20 +115,7 @@ class PatchiesBrain(sb.core.Brain):
 
                 self.hparams.tensorboard_train_logger.writer.add_scalar('loss/train_step', loss.detach(), 
                                                                 self.hparams.noam_annealing.n_steps)
-                if loss_dict['contrastive_loss']:
-                    self.hparams.tensorboard_train_logger.writer.add_scalar('loss_contrastive/train_step', loss_dict['contrastive_loss'].detach(), 
-                                                                    self.hparams.noam_annealing.n_steps)
-                if loss_dict['diversity_loss']:
-                    self.hparams.tensorboard_train_logger.writer.add_scalar('loss_diversity/train_step', loss_dict['diversity_loss'].detach(), 
-                                                                    self.hparams.noam_annealing.n_steps)
 
-                if loss_dict['latent_l2_loss']:
-                    self.hparams.tensorboard_train_logger.writer.add_scalar('loss_latent_l2/train_step', loss_dict['latent_l2_loss'].detach(), 
-                                                                    self.hparams.noam_annealing.n_steps)
-
-                if prob_perplexity:
-                    self.hparams.tensorboard_train_logger.writer.add_scalar('prob_perplexity/train_step', prob_perplexity, 
-                                                                    self.hparams.noam_annealing.n_steps)
                 self.hparams.tensorboard_train_logger.writer.add_scalar('lr/train_step', self.hparams.noam_annealing.current_lr, 
                                                                 self.hparams.noam_annealing.n_steps)
 
@@ -187,50 +123,50 @@ class PatchiesBrain(sb.core.Brain):
 
     def evaluate_batch(self, batch, stage):
         """Computations needed for validation/test batches"""
-        feat_masked, pos_target, neg_target, num_vars, prob_perplexity, latent_l2_loss = self.compute_forward(batch, stage=stage)
+        feat, pred_masked, target_masked = self.compute_forward(batch, stage=stage)
         with torch.no_grad():
-            loss_dict = self.compute_objectives(feat_masked, pos_target, neg_target, num_vars, prob_perplexity, latent_l2_loss, batch, stage=stage)
-            loss = loss_dict['loss']
+            loss = self.compute_objectives(pred_masked, target_masked, batch, stage=stage)
         return loss.detach()
-    def on_stage_start(self, stage, epoch):
-        """Gets called at the beginning of each epoch"""
-        # Compute Accuracy using MetricStats
-        # Define function taking (prediction, target, length) for eval
-        def accuracy_value(predict, target, lengths):
-            """Computes Accuracy"""
-            predict = F.softmax(predict, dim=1) # logits to probabilities
-            predict = torch.log(predict) # probs to log-probs
-            predict = predict.unsqueeze(0)
-            target = target.unsqueeze(0)
-            nbr_correct, nbr_total = Accuracy(
-                predict, target, lengths
-            )
-            acc = torch.tensor([nbr_correct / nbr_total])
-            return acc
+    # def on_stage_start(self, stage, epoch):
+    #     """Gets called at the beginning of each epoch"""
+    #     # # Compute Accuracy using MetricStats
+    #     # # Define function taking (prediction, target, length) for eval
+    #     # def accuracy_value(predict, target, lengths):
+    #     #     """Computes Accuracy"""
+    #     #     predict = F.softmax(predict, dim=1) # logits to probabilities
+    #     #     predict = torch.log(predict) # probs to log-probs
+    #     #     predict = predict.unsqueeze(0)
+    #     #     target = target.unsqueeze(0)
+    #     #     nbr_correct, nbr_total = Accuracy(
+    #     #         predict, target, lengths
+    #     #     )
+    #     #     acc = torch.tensor([nbr_correct / nbr_total])
+    #     #     return acc
 
-        self.acc_metric = sb.utils.metric_stats.MetricStats(
-            metric=accuracy_value, n_jobs=1
-        )
+    #     # self.acc_metric = sb.utils.metric_stats.MetricStats(
+    #     #     metric=accuracy_value, n_jobs=1
+    #     # )
 
-        self.loss_metric_contrastive = []
-        self.loss_metric_diversity = []
-        self.loss_metric_latent_l2 = []
+    #     # self.loss_metric_contrastive = []
+    #     # self.loss_metric_diversity = []
+    #     # self.loss_metric_latent_l2 = []
 
     def on_stage_end(self, stage, stage_loss, epoch):
         """Gets called at the end of an epoch."""
 
         # Compute/store important stats
-        stage_stats = {"loss": stage_loss, "acc": self.acc_metric.summarize("average")}
+        #stage_stats = {"loss": stage_loss, "acc": self.acc_metric.summarize("average")}
+        stage_stats = {"loss": stage_loss}
 
-        if self.loss_metric_contrastive != []:
-            avg_loss_contrastive = float(sum(self.loss_metric_contrastive) / len(self.loss_metric_contrastive))
-            stage_stats['loss_contrastive'] = avg_loss_contrastive
-        if self.loss_metric_diversity != []:
-            avg_loss_diversity = float(sum(self.loss_metric_diversity) / len(self.loss_metric_diversity))
-            stage_stats['loss_diversity'] = avg_loss_diversity
-        if self.loss_metric_latent_l2 != []:
-            avg_loss_penalization = float(sum(self.loss_metric_latent_l2) / len(self.loss_metric_latent_l2))
-            stage_stats['loss_latent_l2'] = avg_loss_diversity
+        # if self.loss_metric_contrastive != []:
+        #     avg_loss_contrastive = float(sum(self.loss_metric_contrastive) / len(self.loss_metric_contrastive))
+        #     stage_stats['loss_contrastive'] = avg_loss_contrastive
+        # if self.loss_metric_diversity != []:
+        #     avg_loss_diversity = float(sum(self.loss_metric_diversity) / len(self.loss_metric_diversity))
+        #     stage_stats['loss_diversity'] = avg_loss_diversity
+        # if self.loss_metric_latent_l2 != []:
+        #     avg_loss_penalization = float(sum(self.loss_metric_latent_l2) / len(self.loss_metric_latent_l2))
+        #     stage_stats['loss_latent_l2'] = avg_loss_diversity
 
         if stage == sb.Stage.TRAIN:
             self.train_stats = stage_stats
@@ -261,9 +197,9 @@ class PatchiesBrain(sb.core.Brain):
                     train_stats=self.train_stats,
                     valid_stats=stage_stats,
                 )
-            self.checkpointer.save_and_keep_only(
-                meta={"acc": stage_stats["acc"]}, max_keys=["acc"],
-            )
+            # self.checkpointer.save_and_keep_only(
+            #     meta={"acc": stage_stats["acc"]}, max_keys=["acc"],
+            # )
         elif stage == sb.Stage.TEST:
             self.hparams.train_logger.log_stats(
                 stats_meta={"Epoch loaded": self.hparams.epoch_counter.current},

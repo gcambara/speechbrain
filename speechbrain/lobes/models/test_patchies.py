@@ -34,7 +34,7 @@ def test_multipatch():
     patch_sizes = [[16, 80], [32, 80]]
     patch_strides = [[16, 1], [32, 1]]
     embedding_dim = 768
-    feat_stride = 0.01
+    feat_stride = 10.0
     patch_and_pos = PatchAndPos(patch_sizes=patch_sizes, patch_strides=patch_strides,
                                 embedding_dim=embedding_dim)
 
@@ -131,7 +131,7 @@ def test_crosspatch():
     patch_sizes = [[32, 80]]
     patch_strides = [[32, 1]]
     embedding_dim = 768
-    feat_stride = 0.01
+    feat_stride = 10.0
     patch_and_pos = PatchAndPos(patch_sizes=patch_sizes, patch_strides=patch_strides,
                                 embedding_dim=embedding_dim)
     patches, patch_info = patch_and_pos(fbank)
@@ -196,6 +196,8 @@ def test_crosspatch():
     feat, _ = decoder(feat)
     print(f"Decoder out shape = {feat.shape}")
 
+    saved_feat = feat
+
     print("UPSAMPLE IF NEEDED (YES IN THIS CASE)")
     print(f"Patch target shape = {patch_target.shape}")
     print(f"Decoder not-upsampled shape = {feat.shape}")
@@ -205,6 +207,7 @@ def test_crosspatch():
 
     print("RECONSTRUCTION LOSS TEST")
     print(f"Not upsampled mask indices = {mask_indices}")
+    print(mask_indices)
     upsampled_mask_indices = feat_masker.upsample_mask_indices(mask_indices, 2)
     print(f"Upsampled mask indices = {upsampled_mask_indices}")
     pred_masked = feat_masker.get_masked_features(feat, upsampled_mask_indices)
@@ -215,6 +218,14 @@ def test_crosspatch():
     loss, patch_losses = reconstruction_loss([pred_masked], [target_masked], masks=None)
     print(loss)
     print(patch_losses)
+
+    print("FEATURE TO PATCH PROJECTOR TEST")
+    feat_to_patch = FeatureToPatchProjector(patch_sizes)
+    print(f"Projectors = {feat_to_patch.projectors}")
+    decoded_patches = feat_to_patch(saved_feat, patch_info)
+    #print(f"Offsets = {feat_to_patch.offsets}")
+    print(f"Decoded patches len = {len(decoded_patches)}")
+    print(f"Decoded patches shapes = {decoded_patches[0].shape}")
 
     # print("FEATURE TO PATCH PROJECTOR TEST")
     # feat_to_patch = FeatureToPatchProjector(patch_info)
