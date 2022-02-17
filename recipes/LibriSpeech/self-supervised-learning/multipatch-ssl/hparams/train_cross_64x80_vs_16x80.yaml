@@ -16,23 +16,22 @@ tensorboard_logs: !ref <output_folder>/logs/
 data_folder: /datasets/TALN/speech/eng/librispeech/audio/LibriSpeech # e,g./path/to/LibriSpeech
 # noise/ris dataset will automatically be downloaded
 #data_folder_rirs: !ref <data_folder>
-# train_splits: ["train-clean-100", "train-clean-360", "train-other-500"]
-# dev_splits: ["dev-clean"]
-# test_splits: ["test-clean", "test-other"]
-train_splits: ["test-clean"]
-dev_splits: ["test-clean"]
-test_splits: ["test-clean"]
+train_splits: ["train-clean-100", "train-clean-360", "train-other-500"]
+dev_splits: ["dev-clean"]
+test_splits: ["test-clean", "test-other"]
+# train_splits: ["test-clean"]
+# dev_splits: ["test-clean"]
+# test_splits: ["test-clean"]
 skip_prep: False
 ckpt_interval_minutes: 25 # save checkpoint every N min
-# train_csv: !ref <output_folder>/train.csv
-# valid_csv: !ref <output_folder>/dev-clean.csv
-# test_csv:
-#    - !ref <output_folder>/test-clean.csv
-#    - !ref <output_folder>/test-other.csv
-train_csv: !ref <output_folder>/test-clean.csv
-valid_csv: !ref <output_folder>/test-clean.csv
-test_csv: !ref <output_folder>/test-clean.csv
-
+train_csv: !ref <output_folder>/train.csv
+valid_csv: !ref <output_folder>/dev-clean.csv
+test_csv:
+   - !ref <output_folder>/test-clean.csv
+   - !ref <output_folder>/test-other.csv
+# train_csv: !ref <output_folder>/test-clean.csv
+# valid_csv: !ref <output_folder>/test-clean.csv
+# test_csv: !ref <output_folder>/test-clean.csv
 # We remove utterance slonger than 10s in the train/dev/test sets as
 # longer sentences certainly correspond to "open microphones".
 avoid_if_longer_than: 30.0
