@@ -77,7 +77,7 @@ sample_rate: 16000
 batch_size: 12
 batch_seconds: 50.0
 test_batch_size: 8
-gradient_accumulation: 16
+gradient_accumulation: 1
 freeze: False
 
 # Dynamic batching for ease of use

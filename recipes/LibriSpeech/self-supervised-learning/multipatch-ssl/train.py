@@ -266,14 +266,10 @@ def dataio_prepare(hparams):
     # We also sort the validation data so it is faster to validate
     valid_data = valid_data.filtered_sorted(sort_key="duration")
 
-    test_data = sb.dataio.dataset.DynamicItemDataset.from_csv(
-        csv_path=hparams["test_csv"], replacements={"data_root": data_folder},
-    )
-
     # We also sort the validation data so it is faster to validate
-    test_data = test_data.filtered_sorted(sort_key="duration")
+    #test_data = test_data.filtered_sorted(sort_key="duration")
 
-    datasets = [train_data, valid_data, test_data]
+    datasets = [train_data, valid_data]
 
     # defining tokenizer and loading it
 
@@ -316,7 +312,7 @@ def dataio_prepare(hparams):
                 collate_fn=PaddedBatch,
             )
 
-    return datasets[0], datasets[1], datasets[2]
+    return datasets[0], datasets[1]
 
 if __name__ == "__main__":
 
@@ -360,7 +356,7 @@ if __name__ == "__main__":
     )
 
     # Create the datasets objects as well as tokenization and encoding :-D
-    train_data, valid_data, test_data = dataio_prepare(hparams)
+    train_data, valid_data = dataio_prepare(hparams)
 
     # Trainer initialization
     patchies_brain = PatchiesBrain(
@@ -383,9 +379,9 @@ if __name__ == "__main__":
     )
 
     # Test
-    patchies_brain.hparams.acc_file = hparams["output_folder"] + "/acc_test.txt"
-    patchies_brain.evaluate(
-        test_data,
-        min_key="loss",
-        test_loader_kwargs=hparams["test_dataloader_opts"],
-    )
+#    patchies_brain.hparams.acc_file = hparams["output_folder"] + "/acc_test.txt"
+#    patchies_brain.evaluate(
+#        test_data,
+#        min_key="loss",
+#        test_loader_kwargs=hparams["test_dataloader_opts"],
+#    )
