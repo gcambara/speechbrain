@@ -115,6 +115,8 @@ class W2VBrain(sb.core.Brain):
             ids, predict=logits, target=target, lengths=None
         )
 
+        if prob_perplexity:
+            self.metric_prob_perplexity.append(prob_perplexity)
         if loss_dict['contrastive_loss']:
             self.loss_metric_contrastive.append(loss_dict['contrastive_loss'])
         if loss_dict['diversity_loss']:
@@ -225,6 +227,7 @@ class W2VBrain(sb.core.Brain):
         self.loss_metric_contrastive = []
         self.loss_metric_diversity = []
         self.loss_metric_latent_l2 = []
+        self.metric_prob_perplexity = []
 
     def on_stage_end(self, stage, stage_loss, epoch):
         """Gets called at the end of an epoch."""
@@ -241,6 +244,9 @@ class W2VBrain(sb.core.Brain):
         if self.loss_metric_latent_l2 != []:
             avg_loss_penalization = float(sum(self.loss_metric_latent_l2) / len(self.loss_metric_latent_l2))
             stage_stats['loss_latent_l2'] = avg_loss_diversity
+        if self.metric_prob_perplexity != []:
+            avg_prob_perplexity = float(sum(self.metric_prob_perplexity) / len(self.metric_prob_perplexity))
+            stage_stats['prob_perplexity'] = avg_prob_perplexity
 
         if stage == sb.Stage.TRAIN:
             self.train_stats = stage_stats
