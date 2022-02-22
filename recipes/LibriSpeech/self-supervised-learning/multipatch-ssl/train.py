@@ -118,7 +118,7 @@ class PatchiesBrain(sb.core.Brain):
 
                 self.hparams.tensorboard_train_logger.writer.add_scalar('lr/train_step', self.hparams.noam_annealing.current_lr, 
                                                                 self.hparams.noam_annealing.n_steps)
-
+ 
         return loss.detach()
 
     def evaluate_batch(self, batch, stage):
@@ -126,30 +126,53 @@ class PatchiesBrain(sb.core.Brain):
         feat, pred_masked, target_masked = self.compute_forward(batch, stage=stage)
         with torch.no_grad():
             loss = self.compute_objectives(pred_masked, target_masked, batch, stage=stage)
+
+        if self.first_batch:
+            self.log_image(batch, feat, pred_masked, target_masked, stage)
+            self.first_batch = False
         return loss.detach()
-    # def on_stage_start(self, stage, epoch):
-    #     """Gets called at the beginning of each epoch"""
-    #     # # Compute Accuracy using MetricStats
-    #     # # Define function taking (prediction, target, length) for eval
-    #     # def accuracy_value(predict, target, lengths):
-    #     #     """Computes Accuracy"""
-    #     #     predict = F.softmax(predict, dim=1) # logits to probabilities
-    #     #     predict = torch.log(predict) # probs to log-probs
-    #     #     predict = predict.unsqueeze(0)
-    #     #     target = target.unsqueeze(0)
-    #     #     nbr_correct, nbr_total = Accuracy(
-    #     #         predict, target, lengths
-    #     #     )
-    #     #     acc = torch.tensor([nbr_correct / nbr_total])
-    #     #     return acc
 
-    #     # self.acc_metric = sb.utils.metric_stats.MetricStats(
-    #     #     metric=accuracy_value, n_jobs=1
-    #     # )
+    def log_image(self, batch, feat, pred_masked, target_masked, stage):
+        if stage == 'Stage.TRAIN':
+            stage_name = 'train'
+        else:
+            stage_name = 'valid'
 
-    #     # self.loss_metric_contrastive = []
-    #     # self.loss_metric_diversity = []
-    #     # self.loss_metric_latent_l2 = []
+        sample_index = -1
+        wavs, wav_lens = batch.sig
+        sample_id = batch.id[sample_index]
+        epoch = self.hparams.epoch_counter.current
+        wav = wavs[sample_index]
+
+        target_image = self.modules.patchies.featurizer(wav.unsqueeze(0)).squeeze().T
+        pred_masked_image = self.unpatchify(pred_masked[sample_index].unsqueeze(0)).squeeze().T
+        target_masked_image = self.unpatchify(target_masked[sample_index].unsqueeze(0)).squeeze().T
+        pred_feat_image = self.unpatchify(feat[sample_index].unsqueeze(0)).squeeze().T
+
+        if self.hparams.epoch_counter.current == 1:
+            self.hparams.tensorboard_train_logger.writer.add_audio(f'{stage_name}_waveform_{sample_id}', wav, epoch, self.hparams.sample_rate)
+
+        self.hparams.tensorboard_train_logger.writer.add_image(f'{stage_name}_pred_image_{sample_id}', self.normalize_image(pred_feat_image), epoch, dataformats='HW')
+        self.hparams.tensorboard_train_logger.writer.add_image(f'{stage_name}_target_image_{sample_id}', self.normalize_image(target_image), epoch, dataformats='HW')
+        self.hparams.tensorboard_train_logger.writer.add_image(f'{stage_name}_pred_masked_{sample_id}', self.normalize_image(pred_masked_image), epoch, dataformats='HW')
+        self.hparams.tensorboard_train_logger.writer.add_image(f'{stage_name}_target_masked_{sample_id}', self.normalize_image(target_masked_image), epoch, dataformats='HW')
+
+    def normalize_image(self, image):
+        '''Input = [C, T]'''
+        image -= image.min(1, keepdim=True)[0]
+        image /= image.max(1, keepdim=True)[0]
+        return image
+
+    def unpatchify(self, feat):
+        '''Input = [B, T, C]'''
+        t_size, c_size = self.hparams.patch_sizes[0]
+        feat = feat.view(feat.size(0), feat.size(1), t_size, c_size)
+        feat = feat.view(feat.size(0), feat.size(1) * t_size, c_size)
+        return feat
+
+    def on_stage_start(self, stage, epoch):
+            """Gets called at the beginning of each epoch"""
+            self.first_batch = True
 
     def on_stage_end(self, stage, stage_loss, epoch):
         """Gets called at the end of an epoch."""
@@ -157,16 +180,6 @@ class PatchiesBrain(sb.core.Brain):
         # Compute/store important stats
         #stage_stats = {"loss": stage_loss, "acc": self.acc_metric.summarize("average")}
         stage_stats = {"loss": stage_loss}
-
-        # if self.loss_metric_contrastive != []:
-        #     avg_loss_contrastive = float(sum(self.loss_metric_contrastive) / len(self.loss_metric_contrastive))
-        #     stage_stats['loss_contrastive'] = avg_loss_contrastive
-        # if self.loss_metric_diversity != []:
-        #     avg_loss_diversity = float(sum(self.loss_metric_diversity) / len(self.loss_metric_diversity))
-        #     stage_stats['loss_diversity'] = avg_loss_diversity
-        # if self.loss_metric_latent_l2 != []:
-        #     avg_loss_penalization = float(sum(self.loss_metric_latent_l2) / len(self.loss_metric_latent_l2))
-        #     stage_stats['loss_latent_l2'] = avg_loss_diversity
 
         if stage == sb.Stage.TRAIN:
             self.train_stats = stage_stats

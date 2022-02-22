@@ -131,6 +131,7 @@ target_patcher: !new:speechbrain.lobes.models.patchies.PatcherLayer
     patch_stride: !ref <target_patch_stride>
     embedding_dim: !ref <d_model>
     padding: True
+    projector: False
 
 feature_masker: !new:speechbrain.lobes.models.patchies.FeatureMasker
     mask_dim: !ref <mask_dim>

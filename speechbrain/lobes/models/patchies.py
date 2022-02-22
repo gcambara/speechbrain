@@ -611,13 +611,17 @@ class PatcherLayer(nn.Module):
         patch_size is a Tuple with T, C dimensions
         patch_stride is a Tuple with T, C dimensions
     '''
-    def __init__(self, patch_size=(16, 80), patch_stride=(16, 80), embedding_dim=768, padding=True):
+    def __init__(self, patch_size=(16, 80), patch_stride=(16, 80), 
+                 embedding_dim=768, padding=True, projector=True):
         super().__init__()
         self.patch_size = patch_size
         self.patch_stride = patch_stride
-        self.patch_and_projection = nn.Conv2d(1, embedding_dim,
-                                              kernel_size=self.patch_size, 
-                                              stride=self.patch_stride)
+        if projector:
+            self.patch_and_projection = nn.Conv2d(1, embedding_dim,
+                                                kernel_size=self.patch_size, 
+                                                stride=self.patch_stride)
+        else:
+            self.patch_and_projection = None
         self.padding = padding
 
     def forward(self, x):
@@ -628,13 +632,14 @@ class PatcherLayer(nn.Module):
             Output = (B, T', C') 
         '''
         assert len(x.shape) == 3, f"Error! Expected input feature dimensions are 3, but got {len(x.shape)}. Input feature shape = {x.shape}"
+        padding = None
+        if self.patch_and_projection:
+            x = x.unsqueeze(1) # B, 1, T, C
+            if self.padding:
+                x, padding = self.pad(x, pad_patch_size=self.patch_size)
 
-        x = x.unsqueeze(1) # B, 1, T, C
-        if self.padding:
-            x, padding = self.pad(x, pad_patch_size=self.patch_size)
-
-        x = self.patch_and_projection(x).flatten(2) # B, C', T'
-        x = x.transpose(1, 2) # B, T', C'
+            x = self.patch_and_projection(x).flatten(2) # B, C', T'
+            x = x.transpose(1, 2) # B, T', C'
 
         return x, padding
 
@@ -760,7 +765,7 @@ class Patchies(nn.Module):
     def __init__(self,
                  featurizer=FbankFeaturizer(),
                  patcher=PatchAndPos(),
-                 target_patcher=PatcherLayer(),
+                 target_patcher=PatcherLayer(projector=False),
                  feat_masker=FeatureMasker(),
                  contextualizer=ContextExtractorBase(),
                  feat_projector=FeatureProjector(),
