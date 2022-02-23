@@ -99,9 +99,18 @@ contrastive_weight: 1.0
 diversity_weight: 0.1
 latent_l2_weight: 0.0
 wav2vec2_latent_extractor: !new:speechbrain.lobes.models.Wav2Vec2.W2V2LatentExtractor
+wav2vec2_latent_projector: !new:speechbrain.lobes.models.Wav2Vec2.W2V2LatentProjector
+    n_neurons: !ref <d_model>
 wav2vec2_context_extractor: !new:speechbrain.lobes.models.Wav2Vec2.W2V2ContextExtractorLarge
     layer_drop: 0.0
-wav2vec2_positional_encoding: !new:speechbrain.lobes.models.Wav2Vec2.W2V2PositionalEncoding
+wav2vec2_final_projector: !new:speechbrain.nnet.linear.Linear
+    input_size: !ref <d_model>
+    n_neurons: 768
+wav2vec2_target_projector: !new:speechbrain.nnet.linear.Linear
+    input_size: 384
+    n_neurons: 384
+wav2vec2_positional_encoding: !new:speechbrain.lobes.models.Wav2Vec2.W2V2PositionalEncoding:
+    in_channels: !ref <d_model>
 wav2vec2_feature_masker: !new:speechbrain.lobes.models.Wav2Vec2.W2V2FeatureMasker
     mask_dim: !ref <d_model>
     mask_prob: !ref <mask_prob>
@@ -117,7 +126,10 @@ wav2vec2_loss: !new:speechbrain.lobes.models.Wav2Vec2.W2V2Loss
 
 wav2vec2: !new:speechbrain.lobes.models.Wav2Vec2.Wav2Vec2
     latent_extractor:    !ref <wav2vec2_latent_extractor>
+    latent_projector:    !ref <wav2vec2_latent_projector>
     context_extractor:   !ref <wav2vec2_context_extractor>
+    final_projector:     !ref <wav2vec2_final_projector>
+    target_projector:    !ref <wav2vec2_target_projector>
     positional_encoding: !ref <wav2vec2_positional_encoding>
     vector_quantizer:    !ref <wav2vec2_vector_quantizer>
     feat_masker:         !ref <wav2vec2_feature_masker>
