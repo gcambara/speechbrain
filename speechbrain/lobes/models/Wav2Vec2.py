@@ -160,16 +160,16 @@ class W2V2ContextExtractorBase(nn.Module):
                     hidden_states.append(x)
         return x, hidden_states
 
-class W2V2ContextExtractorLarge(nn.Module):
+class W2V2ContextExtractorLarge(W2V2ContextExtractorBase):
     def __init__(self):
-        self.context_extractor = W2V2ContextExtractorBase(d_ffn=[4096] * 24,
-                                                          nhead=[16] * 24,
-                                                          d_model=[1024] * 24,
-                                                          dropout=[0.1] * 24,
-                                                          activation=[nn.GELU()] * 24,
-                                                          normalize_before=[False] * 24,
-                                                          layer_drop=0.0
-                                                          )
+        super().__init__(d_ffn=[4096] * 24,
+                         nhead=[16] * 24,
+                         d_model=[1024] * 24,
+                         dropout=[0.1] * 24,
+                         activation=[nn.GELU] * 24,
+                         normalize_before=[False] * 24,
+                         layer_drop=0.0
+                        )
 
     def forward(self, x, attention_mask=None, output_hidden_states=False):
         hidden_states = []

@@ -106,9 +106,9 @@ wav2vec2_final_projector: !new:speechbrain.nnet.linear.Linear
     input_size: !ref <d_model>
     n_neurons: 768
 wav2vec2_target_projector: !new:speechbrain.nnet.linear.Linear
-    input_size: 384
-    n_neurons: 384
-wav2vec2_positional_encoding: !new:speechbrain.lobes.models.Wav2Vec2.W2V2PositionalEncoding:
+    input_size: 768
+    n_neurons: 768
+wav2vec2_positional_encoding: !new:speechbrain.lobes.models.Wav2Vec2.W2V2PositionalEncoding
     in_channels: !ref <d_model>
 wav2vec2_feature_masker: !new:speechbrain.lobes.models.Wav2Vec2.W2V2FeatureMasker
     mask_dim: !ref <d_model>
