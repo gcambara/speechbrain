@@ -51,6 +51,9 @@ class W2V2LatentExtractor(nn.Module):
         super().__init__()
         assert len(in_channels) == len(out_channels) == len(kernel_size) == len(stride) == len(norms) == len(acts), "Error! Check that input lists in the constructor have the same length."
 
+        self.kernel_size = kernel_size
+        self.stride = stride
+
         blocks = collections.OrderedDict()
         for i in range(len(in_channels)):
             conv_block = collections.OrderedDict()
@@ -75,6 +78,16 @@ class W2V2LatentExtractor(nn.Module):
 
     def forward(self, x):
         return self.latent_extractor(x)
+
+    def get_output_lengths(self, input_lengths: torch.LongTensor):
+        def _conv_out_length(input_length, kernel_size, stride):
+            return torch.round((input_length - kernel_size) / stride + 1)
+
+        for kernel_size, stride in zip(self.kernel_size, self.stride):
+            input_lengths = _conv_out_length(
+                input_lengths, kernel_size, stride
+            )
+        return input_lengths.to(torch.long)
 
 class W2V2LatentProjector(nn.Module):
     """wav2vec2.0 default latent projector
@@ -137,12 +150,12 @@ class W2V2ContextExtractorBase(nn.Module):
                 if module.bias is not None:
                     module.bias.data.zero_()
 
-    def forward(self, x, output_hidden_states=False):
+    def forward(self, x, attention_mask=None, output_hidden_states=False):
         hidden_states = []
         for layer in self.context_extractor:
             layer_drop_prob = np.random.random()
             if not self.training or (layer_drop_prob > self.layer_drop):
-                x = layer(x)[0]
+                x = layer(x, src_key_padding_mask=attention_mask)[0]
                 if output_hidden_states:
                     hidden_states.append(x)
         return x, hidden_states
@@ -157,12 +170,12 @@ class W2V2ContextExtractorLarge(nn.Module):
                                                           normalize_before=[False] * 24
                                                           )
 
-    def forward(self, x, output_hidden_states=False):
+    def forward(self, x, attention_mask=None, output_hidden_states=False):
         hidden_states = []
         for layer in self.context_extractor:
             layer_drop_prob = np.random.random()
             if not self.training or (layer_drop_prob > self.layer_drop):
-                x = layer(x)[0]
+                x = layer(x, src_key_padding_mask=attention_mask)[0]
                 if output_hidden_states:
                     hidden_states.append(x)
         return x, hidden_states
@@ -463,7 +476,16 @@ class Wav2Vec2(nn.Module):
 
         if self.positional_encoding:
             feat += self.positional_encoding(feat)
-        feat, hidden_states = self.context_extractor(feat, output_hidden_states=output_hidden_states)
+
+
+        if wav_lens is not None:
+            sample_wav_lens = torch.round(wav_lens * wav.size(1))
+            output_lens = self.latent_extractor.get_output_lengths(sample_wav_lens)
+            attention_mask = self.make_padding_mask(feat.shape, output_lens)
+        else:
+            attention_mask = None
+
+        feat, hidden_states = self.context_extractor(feat, attention_mask=attention_mask, output_hidden_states=output_hidden_states)
 
         if self.final_projector and do_final_projection:
             feat = self.final_projector(feat)
@@ -533,6 +555,11 @@ class Wav2Vec2(nn.Module):
         )  # to NxBxTxC
 
         return negs, neg_idxs
+
+    def make_padding_mask(self, input_shape, abs_lens):
+        """ False when to be used, following speechbrain convention """
+        padding_mask = torch.arange(input_shape[1])[None, :].to(abs_lens) >= abs_lens[:, None]
+        return padding_mask
 
     def freeze(self):
         for param in self.parameters():
