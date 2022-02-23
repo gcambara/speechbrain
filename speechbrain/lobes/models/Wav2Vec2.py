@@ -477,7 +477,6 @@ class Wav2Vec2(nn.Module):
         if self.positional_encoding:
             feat += self.positional_encoding(feat)
 
-
         if wav_lens is not None:
             sample_wav_lens = torch.round(wav_lens * wav.size(1))
             output_lens = self.latent_extractor.get_output_lengths(sample_wav_lens)
