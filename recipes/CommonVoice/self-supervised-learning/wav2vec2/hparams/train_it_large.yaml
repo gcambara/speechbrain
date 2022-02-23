@@ -102,7 +102,6 @@ wav2vec2_latent_extractor: !new:speechbrain.lobes.models.Wav2Vec2.W2V2LatentExtr
 wav2vec2_latent_projector: !new:speechbrain.lobes.models.Wav2Vec2.W2V2LatentProjector
     n_neurons: !ref <d_model>
 wav2vec2_context_extractor: !new:speechbrain.lobes.models.Wav2Vec2.W2V2ContextExtractorLarge
-    layer_drop: 0.0
 wav2vec2_final_projector: !new:speechbrain.nnet.linear.Linear
     input_size: !ref <d_model>
     n_neurons: 768
