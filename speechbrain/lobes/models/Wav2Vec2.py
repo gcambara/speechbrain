@@ -167,7 +167,8 @@ class W2V2ContextExtractorLarge(nn.Module):
                                                           d_model=[1024] * 24,
                                                           dropout=[0.1] * 24,
                                                           activation=[nn.GELU()] * 24,
-                                                          normalize_before=[False] * 24
+                                                          normalize_before=[False] * 24,
+                                                          layer_drop=0.0
                                                           )
 
     def forward(self, x, attention_mask=None, output_hidden_states=False):
