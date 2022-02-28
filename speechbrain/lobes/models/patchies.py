@@ -725,7 +725,7 @@ class PatchAndPos(nn.Module):
             if self.positional_embedding:
                 positions_delta = patcher.get_time_stride() * self.feat_stride
                 patch = self.positional_embedding(patch, positions_delta=positions_delta)
-            
+
             patches.append(patch)
             _, padding_channel, padding_time, _ = padding
 
@@ -829,9 +829,10 @@ class Patchies(nn.Module):
             else:
                 feat = unmasked_feat
 
-            positions_delta = (self.featurizer_hop_length * 
-                               self.patcher.patch_sizes[-1][0]) # get patch size T. watch out for multires patch!
-            feat = self.decoder_pos_emb(feat, positions_delta=positions_delta)
+            if self.decoder_pos_emb:
+                positions_delta = (self.featurizer_hop_length * 
+                                self.patcher.patch_sizes[-1][0]) # get patch size T. watch out for multires patch!
+                feat = self.decoder_pos_emb(feat, positions_delta=positions_delta)
 
             feat, _ = self.decoder(feat)
 
