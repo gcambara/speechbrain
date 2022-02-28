@@ -53,8 +53,13 @@ class PatchiesBrain(sb.core.Brain):
         if self.hparams.upsampling_factor > 1:
             mask_indices = self.modules.patchies.feat_masker.upsample_mask_indices(mask_indices, self.hparams.upsampling_factor)
 
-        pred_masked = self.modules.patchies.feat_masker.get_masked_features(feat, mask_indices)
-        target_masked = self.modules.patchies.feat_masker.get_masked_features(target_patches, mask_indices)
+        if self.hparams.apply_mask:
+            pred_masked = self.modules.patchies.feat_masker.get_masked_features(feat, mask_indices)
+            target_masked = self.modules.patchies.feat_masker.get_masked_features(target_patches, mask_indices)
+        else: # since we don't apply mask, we simply reconstruct all the patches
+            pred_masked = self.modules.patchies.feat_masker.get_masked_features(feat, not_mask_indices)
+            target_masked = self.modules.patchies.feat_masker.get_masked_features(target_patches, not_mask_indices)
+            
 
         return feat, pred_masked, target_masked
 
