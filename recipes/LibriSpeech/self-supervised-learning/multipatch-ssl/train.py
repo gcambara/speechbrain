@@ -41,12 +41,12 @@ class PatchiesBrain(sb.core.Brain):
             out = self.modules.patchies.module(wavs, wav_lens=x_lens,
                                                normalize_wav=self.hparams.normalize_wav,
                                                output_norm=self.hparams.output_norm,
-                                               apply_mask=True, stage='train')
+                                               apply_mask=self.hparams.apply_mask, stage='train')
         else:
             out = self.modules.patchies(wavs, wav_lens=x_lens, 
                                         normalize_wav=self.hparams.normalize_wav,
                                         output_norm=self.hparams.output_norm,
-                                        apply_mask=True, stage='train')
+                                        apply_mask=self.hparams.apply_mask, stage='train')
 
         feat, mask_indices, not_mask_indices, target_patches = out['feat'], out['mask_indices'], out['not_mask_indices'], out['target_patches']
 
