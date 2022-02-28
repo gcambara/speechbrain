@@ -40,7 +40,7 @@ hop_length: 10
 max_global_shift: 0.0
 max_local_shift: 0.0
 max_global_scaling: 1.0
-normalize_pos_emb: True
+normalize_pos_emb: False
 
 # Model training patch specific parameters
 patch_sizes: [[16, 80]]
