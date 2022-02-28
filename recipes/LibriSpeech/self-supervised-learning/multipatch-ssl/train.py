@@ -59,7 +59,6 @@ class PatchiesBrain(sb.core.Brain):
         else: # since we don't apply mask, we simply reconstruct all the patches
             pred_masked = self.modules.patchies.feat_masker.get_masked_features(feat, not_mask_indices)
             target_masked = self.modules.patchies.feat_masker.get_masked_features(target_patches, not_mask_indices)
-            
 
         return feat, pred_masked, target_masked
 

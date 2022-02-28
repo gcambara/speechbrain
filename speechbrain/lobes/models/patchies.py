@@ -823,9 +823,11 @@ class Patchies(nn.Module):
             unmasked_feat, hidden_states = self.contextualizer(unmasked_feat)
 
             unmasked_feat = self.feat_projector(unmasked_feat)
-            
+
             if apply_mask:
                 feat = self.feat_masker(unmasked_feat, mask_indices, not_mask_indices)
+            else:
+                feat = unmasked_feat
 
             positions_delta = (self.featurizer_hop_length * 
                                self.patcher.patch_sizes[-1][0]) # get patch size T. watch out for multires patch!
