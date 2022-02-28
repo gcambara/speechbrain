@@ -804,38 +804,25 @@ class Patchies(nn.Module):
             wav = F.layer_norm(wav, normalized_shape=wav.shape[1:])
 
         feat = self.featurizer(wav)
-        #print(f"FBANK shape = {feat.shape}")
 
         if stage == 'train':
             target_patches = self.target_patcher.get_flat_patches(feat, 
                                                                   self.patcher.patch_sizes[-1])
-        #print(f"Target patch shape = {target_patches.shape}")
         feat, patch_info = self.patcher(feat)
-        #print(f"Patches shape = {feat.shape}")
 
         if stage == 'train':
             mask, mask_indices, not_mask_indices = self.feat_masker.get_mask(feat.shape, wav_lens=wav_lens)
-            #print(f"Mask shape = {mask.shape}")
-            #print(f"Mask indices = {mask_indices}")
-            #print(f"Not mask indices = {not_mask_indices}")
             unmasked_feat = self.feat_masker.get_masked_features(feat, not_mask_indices)
             masked_feat = self.feat_masker.get_masked_features(feat, mask_indices)
-
-            #print(f"unmasked_feat shape = {unmasked_feat.shape}")
-            #print(f"masked_feat shape = {masked_feat.shape}")
 
             unmasked_feat, hidden_states = self.contextualizer(unmasked_feat)
 
             unmasked_feat = self.feat_projector(unmasked_feat)
-            #print(f"projected unmasked_feat shape = {unmasked_feat.shape}")
             feat = self.feat_masker(unmasked_feat, mask_indices, not_mask_indices)
-            #print(f"feat shape = {feat.shape}")
 
             positions_delta = (self.featurizer_hop_length * 
                                self.patcher.patch_sizes[-1][0]) # get patch size T. watch out for multires patch!
-            #print(f"Positions delta = {positions_delta}")
             feat = self.decoder_pos_emb(feat, positions_delta=positions_delta)
-            #print(f"feat w pos emb shape = {feat.shape}")
 
             feat, _ = self.decoder(feat)
 
