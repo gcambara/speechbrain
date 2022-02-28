@@ -28,7 +28,7 @@ test_csv:
    - !ref <output_folder>/test-clean.csv
    - !ref <output_folder>/test-other.csv
 
-avoid_if_longer_than: 60.0
+avoid_if_longer_than: 20.0
 avoid_if_shorter_than: 1.0
 
 # Training parameters
