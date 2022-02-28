@@ -811,14 +811,21 @@ class Patchies(nn.Module):
         feat, patch_info = self.patcher(feat)
 
         if stage == 'train':
-            mask, mask_indices, not_mask_indices = self.feat_masker.get_mask(feat.shape, wav_lens=wav_lens)
-            unmasked_feat = self.feat_masker.get_masked_features(feat, not_mask_indices)
-            masked_feat = self.feat_masker.get_masked_features(feat, mask_indices)
+            if apply_mask:
+                mask, mask_indices, not_mask_indices = self.feat_masker.get_mask(feat.shape, wav_lens=wav_lens)
+                unmasked_feat = self.feat_masker.get_masked_features(feat, not_mask_indices)
+                masked_feat = self.feat_masker.get_masked_features(feat, mask_indices)
+            else:
+                unmasked_feat = feat
+                mask_indices = None
+                not_mask_indices = torch.arange(feat.size(1))
 
             unmasked_feat, hidden_states = self.contextualizer(unmasked_feat)
 
             unmasked_feat = self.feat_projector(unmasked_feat)
-            feat = self.feat_masker(unmasked_feat, mask_indices, not_mask_indices)
+            
+            if apply_mask:
+                feat = self.feat_masker(unmasked_feat, mask_indices, not_mask_indices)
 
             positions_delta = (self.featurizer_hop_length * 
                                self.patcher.patch_sizes[-1][0]) # get patch size T. watch out for multires patch!
