@@ -346,14 +346,7 @@ def dataio_prepare(hparams):
     # We also sort the validation data so it is faster to validate
     valid_data = valid_data.filtered_sorted(sort_key="duration")
 
-    test_data = sb.dataio.dataset.DynamicItemDataset.from_csv(
-        csv_path=hparams["test_csv"], replacements={"data_root": data_folder},
-    )
-
-    # We also sort the validation data so it is faster to validate
-    test_data = test_data.filtered_sorted(sort_key="duration")
-
-    datasets = [train_data, valid_data, test_data]
+    datasets = [train_data, valid_data]
 
     # defining tokenizer and loading it
 
@@ -396,7 +389,7 @@ def dataio_prepare(hparams):
                 collate_fn=PaddedBatch,
             )
 
-    return datasets[0], datasets[1], datasets[2]
+    return datasets[0], datasets[1]
 
 if __name__ == "__main__":
 
@@ -409,15 +402,15 @@ if __name__ == "__main__":
     # create ddp_group with the right communication protocol
     sb.utils.distributed.ddp_init_group(run_opts)
 
-    # Dataset preparation (parsing CommonVoice)
-    from common_voice_prepare import prepare_common_voice  # noqa
-
     # Create experiment directory
     sb.create_experiment_directory(
         experiment_directory=hparams["output_folder"],
         hyperparams_to_save=hparams_file,
         overrides=overrides,
     )
+    
+     # Dataset prep (parsing Librispeech)
+    from librispeech_prepare import prepare_librispeech  # noqa
 
     if hparams["use_tensorboard"]:
         from speechbrain.utils.train_logger import TensorboardLogger
@@ -425,22 +418,24 @@ if __name__ == "__main__":
         hparams["tensorboard_train_logger"] = TensorboardLogger(
             hparams["tensorboard_logs"]
         )
-    # Due to DDP, we do the preparation ONLY on the main python process
+    
+    # multi-gpu (ddp) save data preparation
     run_on_main(
-        prepare_common_voice,
+        prepare_librispeech,
         kwargs={
             "data_folder": hparams["data_folder"],
-            "save_folder": hparams["save_folder"],
-            "train_tsv_file": hparams["train_tsv_file"],
-            "dev_tsv_file": hparams["dev_tsv_file"],
-            "test_tsv_file": hparams["test_tsv_file"],
-            "language": hparams["language"],
+            "tr_splits": hparams["train_splits"],
+            "dev_splits": hparams["dev_splits"],
+            "te_splits": hparams["test_splits"],
+            "save_folder": hparams["output_folder"],
+            "merge_lst": hparams["train_splits"],
+            "merge_name": "train.csv",
             "skip_prep": hparams["skip_prep"],
         },
     )
 
     # Create the datasets objects as well as tokenization and encoding :-D
-    train_data, valid_data, test_data = dataio_prepare(hparams)
+    train_data, valid_data = dataio_prepare(hparams)
 
     # Trainer initialization
     w2v_brain = W2VBrain(
@@ -458,14 +453,6 @@ if __name__ == "__main__":
         w2v_brain.hparams.epoch_counter,
         train_data,
         valid_data,
-        train_loader_kwargs=hparams["dataloader_options"],
-        valid_loader_kwargs=hparams["test_dataloader_options"],
-    )
-
-    # Test
-    w2v_brain.hparams.acc_file = hparams["output_folder"] + "/acc_test.txt"
-    w2v_brain.evaluate(
-        test_data,
-        min_key="loss",
-        test_loader_kwargs=hparams["test_dataloader_options"],
+        train_loader_kwargs=hparams["train_dataloader_opts"],
+        valid_loader_kwargs=hparams["valid_dataloader_opts"],
     )
