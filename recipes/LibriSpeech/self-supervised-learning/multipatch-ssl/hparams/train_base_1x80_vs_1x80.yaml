@@ -49,6 +49,7 @@ target_patch_size: [1, 80]
 feat_patch_projector_patch_size: [[1, 80]] # [!ref <target_patch_size>]
 target_patch_stride: [1, 80]
 d_model: 768
+apply_mask: True
 mask_length: 1 #10
 mask_prob: 0.065
 mask_dim: 512
