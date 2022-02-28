@@ -1,0 +1,171 @@
+# ################################
+# Model: wav2vec2 LARGE (pretraining)
+# Authors: Guillermo Cámbara 2022
+#          Rudolf Braun      2022
+#          Titouan Parcollet 2022
+#          Sarthak Yadav     2022
+# ################################
+
+# Seed needs to be set at top of yaml, before objects with parameters are made
+seed: 1993
+__set_seed: !!python/object/apply:torch.manual_seed [!ref <seed>]
+output_folder: !ref results/wav2vec2_pretraining/<seed>
+save_folder: !ref <output_folder>/save
+train_log: !ref <output_folder>/train_log.txt
+use_tensorboard: True
+tensorboard_logs: !ref <output_folder>/logs/
+
+# Data files
+data_folder: !PLACEHOLDER  # e.g, /localscratch/cv-corpus-7.0-2021-07-21/it
+train_tsv_file: !ref <data_folder>/train.tsv  # Standard CommonVoice .tsv files
+dev_tsv_file: !ref <data_folder>/dev.tsv  # Standard CommonVoice .tsv files
+test_tsv_file: !ref <data_folder>/test.tsv  # Standard CommonVoice .tsv files
+language: it # use 'it' for Italian, 'rw' for Kinyarwanda, 'en' for english
+train_csv: !ref <save_folder>/train.csv
+valid_csv: !ref <save_folder>/dev.csv
+test_csv: !ref <save_folder>/test.csv
+skip_prep: False # Skip data preparation
+
+# We remove utterance slonger than 10s in the train/dev/test sets as
+# longer sentences certainly correspond to "open microphones".
+avoid_if_longer_than: 10.0
+avoid_if_shorter_than: 1.0
+
+# Training parameters
+# Parameters are corresponding the the ones reported in the official wav2vec2
+# paper (for the masking).
+mask_length: 10
+mask_prob: 0.065
+freeze_wav2vec: False
+
+number_of_epochs: 100
+lr_adam: 2.0 # This will get reduced by the training scheduler
+warmup: 25000
+weight_decay: 0.01
+d_model: 1024
+sorting: ascending
+batch_ordering: !ref <sorting>
+auto_mix_prec: False
+sample_rate: 16000
+ckpt_interval_minutes: 30 # save checkpoint every N min
+
+# With data_parallel batch_size is split into N jobs
+# With DDP batch_size is multiplied by N jobs
+# Must be 12 per GPU to fit 32GB of VRAM
+# IMPORTANT: To train w2v2 model, we recommand to have the effective batch_size
+# higher than 100 (batch_size * nb_gpu * gradient_accumulation)
+# Examples are:
+# 32 Tesla V100 32GB — 12 * 32 * 1
+# 4 Tesla V100 32GB — 12 * 4 * {6-8}
+
+# With dynamic batch size set to 50 seconds (batch size 6-8 aprox.):
+# batch size 6 * n_gpus 2 * grad_accum 16 = 192
+# 1 epoch = 15858 steps
+# 15858 steps / grad accum 16 = 991 steps per epoch
+# 991 steps/epoch * 100 epochs = 99113 steps
+# 99113 / 10 = 9911 warmup steps
+batch_size: 12
+batch_seconds: 50.0
+test_batch_size: 8
+gradient_accumulation: 16
+
+# Dynamic batching for ease of use
+dynamic_batching: False
+
+dynamic_batch_sampler:
+    max_batch_len: !ref <batch_seconds> # in terms of seconds
+    left_bucket_len: 1.0
+    multiplier: 1.2
+    shuffle_ex: False # re-create batches at each epoch shuffling examples?
+    batch_ordering: !ref <batch_ordering>
+
+dont_mask_padding: True
+num_workers: 4
+dataloader_options:
+    batch_size: !ref <batch_size>
+    num_workers: !ref <num_workers>
+
+test_dataloader_options:
+    batch_size: !ref <test_batch_size>
+    num_workers: !ref <num_workers>
+
+#
+# Functions and classes
+#
+epoch_counter: !new:speechbrain.utils.epoch_loop.EpochCounter
+    limit: !ref <number_of_epochs>
+
+contrastive_weight: 1.0
+diversity_weight: 0.1
+latent_l2_weight: 0.0
+wav2vec2_latent_extractor: !new:speechbrain.lobes.models.Wav2Vec2.W2V2LatentExtractor
+wav2vec2_latent_projector: !new:speechbrain.lobes.models.Wav2Vec2.W2V2LatentProjector
+    n_neurons: !ref <d_model>
+wav2vec2_context_extractor: !new:speechbrain.lobes.models.Wav2Vec2.W2V2ContextExtractorLarge
+wav2vec2_final_projector: !new:speechbrain.nnet.linear.Linear
+    input_size: !ref <d_model>
+    n_neurons: 768
+wav2vec2_target_projector: !new:speechbrain.nnet.linear.Linear
+    input_size: 768
+    n_neurons: 768
+wav2vec2_positional_encoding: !new:speechbrain.lobes.models.Wav2Vec2.W2V2PositionalEncoding
+    in_channels: !ref <d_model>
+wav2vec2_feature_masker: !new:speechbrain.lobes.models.Wav2Vec2.W2V2FeatureMasker
+    mask_dim: !ref <d_model>
+    mask_prob: !ref <mask_prob>
+    mask_len: !ref <mask_length>
+    len_sorting: !ref <batch_ordering>
+wav2vec2_vector_quantizer: !new:speechbrain.lobes.models.Wav2Vec2.W2V2Quantizer
+    vq_dim: 768
+    temp: (2, 0.1, 0.999995)
+wav2vec2_loss: !new:speechbrain.lobes.models.Wav2Vec2.W2V2Loss
+    contrastive_weight: !ref <contrastive_weight>
+    diversity_weight: !ref <diversity_weight>
+    latent_l2_weight: !ref <latent_l2_weight>
+
+wav2vec2: !new:speechbrain.lobes.models.Wav2Vec2.Wav2Vec2
+    latent_extractor:    !ref <wav2vec2_latent_extractor>
+    latent_projector:    !ref <wav2vec2_latent_projector>
+    context_extractor:   !ref <wav2vec2_context_extractor>
+    final_projector:     !ref <wav2vec2_final_projector>
+    target_projector:    !ref <wav2vec2_target_projector>
+    positional_encoding: !ref <wav2vec2_positional_encoding>
+    vector_quantizer:    !ref <wav2vec2_vector_quantizer>
+    feat_masker:         !ref <wav2vec2_feature_masker>
+    loss:                !ref <wav2vec2_loss>
+
+dynamic_distractor_sampling: False
+distractors_mask_percentage: 0.5
+max_num_negatives: 100
+
+num_negatives: 100
+cross_sample_negatives: 0
+normalize_wav: True
+output_norm: False
+
+latent_grad_weight: 1.0
+penalize_latent: False
+
+modules:
+    wav2vec2: !ref <wav2vec2>
+
+opt_class: !name:torch.optim.AdamW
+    lr: 0 # Will be changed by the scheduler, but we start at 0!
+    betas: (0.9, 0.98)
+    eps: 0.000000001
+    weight_decay: !ref <weight_decay>
+
+noam_annealing: !new:speechbrain.nnet.schedulers.NoamScheduler
+    lr_initial: !ref <lr_adam>
+    n_warmup_steps: !ref <warmup>
+    model_size: !ref <d_model>
+
+checkpointer: !new:speechbrain.utils.checkpoints.Checkpointer
+    checkpoints_dir: !ref <save_folder>
+    recoverables:
+        wav2vec2: !ref <wav2vec2>
+        scheduler: !ref <noam_annealing>
+        counter: !ref <epoch_counter>
+
+train_logger: !new:speechbrain.utils.train_logger.FileTrainLogger
+    save_file: !ref <train_log>
