@@ -55,6 +55,8 @@ target_patch_size: [64, 80]
 feat_patch_projector_patch_size: [[64, 80]] # [!ref <target_patch_size>]
 target_patch_stride: [64, 80]
 d_model: 768
+apply_mask: True
+loss_masked_only: True
 mask_length: 1
 mask_prob: 0.065
 mask_dim: 512
