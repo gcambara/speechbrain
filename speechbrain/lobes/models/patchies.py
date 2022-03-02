@@ -808,6 +808,8 @@ class Patchies(nn.Module):
         if stage == 'train':
             target_patches = self.target_patcher.get_flat_patches(feat, 
                                                                   self.patcher.patch_sizes[-1])
+        else:
+            target_patches = None
         feat, patch_info = self.patcher(feat)
 
         if stage == 'train':
@@ -842,6 +844,7 @@ class Patchies(nn.Module):
                 feat = self.feat_to_patch_projector(feat, patch_info)[0] #gcambara: we are working with single patching, for now
         elif stage == 'inference':
             feat, hidden_states = self.contextualizer(feat)
+            mask_indices, not_mask_indices = None, None
         else:
             raise NotImplementedError
 
@@ -850,65 +853,6 @@ class Patchies(nn.Module):
 
         return {'feat': feat, 'mask_indices': mask_indices, 'not_mask_indices': not_mask_indices,
                 'target_patches': target_patches}
-
-    def sample_negatives(self, y, num, padding_count=None, num_negatives=100, cross_sample_negatives=0):
-        if num_negatives == 0 and cross_sample_negatives == 0:
-            return y.new(0)
-
-        bsz, tsz, fsz = y.shape
-        y = y.view(-1, fsz)  # BTC => (BxT)C
-
-        # FIXME: what happens if padding_count is specified?
-        cross_high = tsz * bsz
-        high = tsz - (padding_count or 0)
-        with torch.no_grad():
-            assert high > 1, f"{bsz,tsz,fsz}"
-
-            if num_negatives > 0:
-                tszs = (
-                    torch.arange(num)
-                    .unsqueeze(-1)
-                    .expand(-1, num_negatives)
-                    .flatten()
-                )
-
-                neg_idxs = torch.randint(
-                    low=0, high=high - 1, size=(bsz, num_negatives * num)
-                )
-                neg_idxs[neg_idxs >= tszs] += 1
-
-            if cross_sample_negatives > 0:
-                tszs = (
-                    torch.arange(num) # gcambara: this can be buffered and reused
-                    .unsqueeze(-1)
-                    .expand(-1, cross_sample_negatives)
-                    .flatten()
-                )
-
-                cross_neg_idxs = torch.randint(
-                    low=0,
-                    high=cross_high - 1,
-                    size=(bsz, cross_sample_negatives * num),
-                )
-                cross_neg_idxs[cross_neg_idxs >= tszs] += 1
-
-        if num_negatives > 0:
-            for i in range(1, bsz):
-                neg_idxs[i] += i * high
-        else:
-            neg_idxs = cross_neg_idxs
-
-        if cross_sample_negatives > 0 and num_negatives > 0:
-            neg_idxs = torch.cat([neg_idxs, cross_neg_idxs], dim=1)
-
-        negs = y[neg_idxs.view(-1)]
-        negs = negs.view(
-            bsz, num, num_negatives + cross_sample_negatives, fsz
-        ).permute(
-            2, 0, 1, 3
-        )  # to NxBxTxC
-
-        return negs, neg_idxs
 
     def freeze(self):
         for param in self.parameters():
