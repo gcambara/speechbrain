@@ -340,14 +340,16 @@ class ContextExtractorBase(nn.Module):
                 if module.bias is not None:
                     module.bias.data.zero_()
 
-    def forward(self, x, output_hidden_states=False):
+    def forward(self, x, output_hidden_states=False, stop_at=-1):
         hidden_states = []
-        for layer in self.context_extractor:
+        for layer_id, layer in enumerate(self.context_extractor):
             layer_drop_prob = np.random.random()
             if not self.training or (layer_drop_prob > self.layer_drop):
                 x = layer(x)[0]
                 if output_hidden_states:
                     hidden_states.append(x)
+            if layer_id == stop_at:
+                break
 
         if self.norm:
             x = self.norm(x)
