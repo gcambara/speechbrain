@@ -23,6 +23,7 @@ import sys
 import torch
 import logging
 import speechbrain as sb
+import torch.nn.functional as F
 from speechbrain.utils.distributed import run_on_main
 from hyperpyyaml import load_hyperpyyaml
 from pathlib import Path
@@ -51,8 +52,21 @@ class ASR(sb.Brain):
                 wavs = self.hparams.augmentation(wavs, wav_lens)
 
         # Forward pass
-        feats = self.modules.patchies(wavs, normalize_wav=self.hparams.normalize_wav,
-                                      output_norm=self.hparams.output_norm)
+        #feats = self.modules.patchies(wavs, normalize_wav=self.hparams.normalize_wav,
+        #                              output_norm=self.hparams.output_norm)
+        # Temporal fix
+        if self.hparams.normalize_wav:
+            wavs = F.layer_norm(wavs, normalized_shape=wavs.shape[1:])
+
+        feats = self.modules.patchies.featurizer(wavs)
+        feats, _ = self.modules.patchies.patcher(feats)
+        feats, hidden_states = self.modules.patchies.contextualizer(feats, 
+                                                                    output_hidden_states=self.hparams.output_hidden_states)
+        if self.hparams.output_hidden_states:
+            feats = hidden_states[self.hparams.hidden_state_layer]
+
+        if self.hparams.output_norm:
+            feats = F.layer_norm(feats, feats.shape)
         x = self.modules.enc(feats)
 
         # Compute outputs
