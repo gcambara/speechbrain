@@ -385,10 +385,10 @@ if __name__ == "__main__":
         torch.nn.modules.utils.consume_prefix_in_state_dict_if_present(state_dict, prefix='0.')
         hparams["modules"]["wav2vec2"].load_state_dict(state_dict)
 
+    hparams["modules"]["wav2vec2"].context_extractor.layer_drop = 0.0
     if hparams['freeze']:
         hparams["modules"]["wav2vec2"].eval()
         hparams["modules"]["wav2vec2"].freeze()
-        hparams["modules"]["wav2vec2"].context_extractor.layer_drop = 0.0
     elif hparams['freeze_latent_extractor']:
         for name, param in hparams['modules']['wav2vec2'].named_parameters():
             if name.startswith('latent_extractor'):
