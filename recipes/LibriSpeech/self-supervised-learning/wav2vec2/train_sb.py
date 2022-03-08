@@ -203,7 +203,7 @@ class W2VBrain(sb.core.Brain):
                 self.hparams.tensorboard_train_logger.writer.add_scalar('lr/train_step', self.hparams.noam_annealing.current_lr, 
                                                                 self.hparams.noam_annealing.n_steps)
                 
-             if self.hparams.log_time_interval and (self.hparams.log_time_interval % self.hparams.noam_annealing.n_steps):
+            if self.hparams.log_time_interval and (self.hparams.log_time_interval % self.hparams.noam_annealing.n_steps):
                 elapsed_time = finish_time - time.time()
                 self.hparams.tensorboard_train_logger.writer.add_scalar(f'performance/train_time_{self.hparams.log_time_interval}_steps', 
                                                                         elapsed_time, 
