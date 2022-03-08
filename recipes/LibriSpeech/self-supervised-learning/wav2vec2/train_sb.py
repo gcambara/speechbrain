@@ -155,14 +155,15 @@ class W2VBrain(sb.core.Brain):
 
                 # anneal lr every update
                 self.hparams.noam_annealing(self.optimizer)
-            if self.hparams.log_time_interval and (self.hparams.noam_annealing.n_steps != 0) and (self.hparams.log_time_interval % self.hparams.noam_annealing.n_steps):
-                elapsed_time = time.time() - self.initial_time
-                self.hparams.tensorboard_train_logger.writer.add_scalar(f'performance/train_time_{self.log_time_interval}_steps', 
-                                                                        elapsed_time, 
-                                                                        self.hparams.noam_annealing.n_steps)
-                self.initial_time = time.time()
-                self.train_time_measures += 1
-                self.mean_train_time += elapsed_time / self.train_time_measures
+
+                if self.hparams.log_time_interval and (self.hparams.noam_annealing.n_steps != 0) and (self.hparams.noam_annealing.n_steps % self.hparams.log_time_interval == 0):
+                    elapsed_time = time.time() - self.initial_time
+                    self.hparams.tensorboard_train_logger.writer.add_scalar(f'performance/train_time_{self.log_time_interval}_steps', 
+                                                                            elapsed_time, 
+                                                                            self.hparams.noam_annealing.n_steps)
+                    self.initial_time = time.time()
+                    self.train_time_measures += 1
+                    self.mean_train_time += elapsed_time / self.train_time_measures
         else:
             feat_masked, pos_target, neg_target, num_vars, prob_perplexity, latent_l2_loss = self.compute_forward(batch, sb.Stage.TRAIN)
 
@@ -203,14 +204,15 @@ class W2VBrain(sb.core.Brain):
                 self.hparams.tensorboard_train_logger.writer.add_scalar('lr/train_step', self.hparams.noam_annealing.current_lr, 
                                                                 self.hparams.noam_annealing.n_steps)
                 
-            if self.hparams.log_time_interval and (self.hparams.noam_annealing.n_steps != 0) and (self.hparams.log_time_interval % self.hparams.noam_annealing.n_steps):
-                elapsed_time = time.time() - self.initial_time
-                self.hparams.tensorboard_train_logger.writer.add_scalar(f'performance/train_time_{self.hparams.log_time_interval}_steps', 
-                                                                        elapsed_time, 
-                                                                        self.hparams.noam_annealing.n_steps)
-                self.initial_time = time.time()
-                self.train_time_measures += 1
-                self.mean_train_time += elapsed_time / self.train_time_measures
+                if self.hparams.log_time_interval and (self.hparams.noam_annealing.n_steps != 0) and (self.hparams.noam_annealing.n_steps % self.hparams.log_time_interval == 0):
+                    elapsed_time = time.time() - self.initial_time
+                    self.hparams.tensorboard_train_logger.writer.add_scalar(f'performance/train_time_{self.hparams.log_time_interval}_steps', 
+                                                                            elapsed_time, 
+                                                                            self.hparams.noam_annealing.n_steps)
+                    self.initial_time = time.time()
+                    self.train_time_measures += 1
+                    self.mean_train_time += elapsed_time / self.train_time_measures
+                    print(elapsed_time)
 
         return loss.detach()
 
