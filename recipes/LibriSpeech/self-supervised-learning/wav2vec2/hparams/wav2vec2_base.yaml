@@ -22,6 +22,7 @@ dev_splits: ["dev-clean"]
 test_splits: ["test-clean", "test-other"]
 skip_prep: False
 ckpt_interval_minutes: 25 # save checkpoint every N min
+log_time_interval: 25 # time is measured every X number of optimizer steps
 train_csv: !ref <output_folder>/train.csv
 valid_csv: !ref <output_folder>/dev-clean.csv
 test_csv:
