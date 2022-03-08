@@ -144,5 +144,15 @@ checkpointer: !new:speechbrain.utils.checkpoints.Checkpointer
         scheduler: !ref <noam_annealing>
         counter: !ref <epoch_counter>
 
-train_logger: !new:speechbrain.utils.train_logger.FileTrainLogger
-    save_file: !ref <train_log>
+#train_logger: !new:speechbrain.utils.train_logger.FileTrainLogger
+#    save_file: !ref <train_log>
+    
+train_logger: !new:speechbrain.utils.train_logger.WandBLogger
+    initializer: !name:wandb.init
+    entity: gcambara
+    project: sb_wav2vec2
+    name: sb_wav2vec2_base_librispeech
+    reinit: True
+    yaml_config: hparams/wav2vec2_base.yaml
+    resume: False
+    sync_tensorboard: !ref <use_tensorboard>
