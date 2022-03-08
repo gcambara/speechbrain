@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 
 import sys
+import time
 import torch
 import torch.nn.functional as F
 import logging
@@ -154,6 +155,14 @@ class W2VBrain(sb.core.Brain):
 
                 # anneal lr every update
                 self.hparams.noam_annealing(self.optimizer)
+            if self.hparams.log_time_interval and (self.hparams.log_time_interval % self.hparams.noam_annealing.n_steps):
+                elapsed_time = finish_time - time.time()
+                self.hparams.tensorboard_train_logger.writer.add_scalar(f'performance/train_time_{self.log_time_interval}_steps', 
+                                                                        elapsed_time, 
+                                                                        self.hparams.noam_annealing.n_steps)
+                self.initial_time = time.time()
+                self.train_time_measures += 1
+                self.mean_train_time += elapsed_time / self.train_time_measures
         else:
             feat_masked, pos_target, neg_target, num_vars, prob_perplexity, latent_l2_loss = self.compute_forward(batch, sb.Stage.TRAIN)
 
@@ -193,6 +202,15 @@ class W2VBrain(sb.core.Brain):
                                                                     self.hparams.noam_annealing.n_steps)
                 self.hparams.tensorboard_train_logger.writer.add_scalar('lr/train_step', self.hparams.noam_annealing.current_lr, 
                                                                 self.hparams.noam_annealing.n_steps)
+                
+             if self.hparams.log_time_interval and (self.hparams.log_time_interval % self.hparams.noam_annealing.n_steps):
+                elapsed_time = finish_time - time.time()
+                self.hparams.tensorboard_train_logger.writer.add_scalar(f'performance/train_time_{self.hparams.log_time_interval}_steps', 
+                                                                        elapsed_time, 
+                                                                        self.hparams.noam_annealing.n_steps)
+                self.initial_time = time.time()
+                self.train_time_measures += 1
+                self.mean_train_time += elapsed_time / self.train_time_measures
 
         return loss.detach()
 
@@ -228,6 +246,9 @@ class W2VBrain(sb.core.Brain):
         self.loss_metric_diversity = []
         self.loss_metric_latent_l2 = []
         self.metric_prob_perplexity = []
+        self.initial_time = time.time()
+        self.mean_train_time = 0.0
+        self.train_time_measures = 0
 
     def on_stage_end(self, stage, stage_loss, epoch):
         """Gets called at the end of an epoch."""
@@ -247,6 +268,8 @@ class W2VBrain(sb.core.Brain):
         if self.metric_prob_perplexity != []:
             avg_prob_perplexity = float(sum(self.metric_prob_perplexity) / len(self.metric_prob_perplexity))
             stage_stats['prob_perplexity'] = avg_prob_perplexity
+        if self.hparams.log_time_interval:
+            stage_stats['mean_train_time'] = self.mean_train_time
 
         if stage == sb.Stage.TRAIN:
             self.train_stats = stage_stats
