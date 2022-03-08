@@ -155,8 +155,8 @@ class W2VBrain(sb.core.Brain):
 
                 # anneal lr every update
                 self.hparams.noam_annealing(self.optimizer)
-            if self.hparams.log_time_interval and (self.hparams.log_time_interval % self.hparams.noam_annealing.n_steps):
-                elapsed_time = finish_time - time.time()
+            if self.hparams.log_time_interval and (self.hparams.noam_annealing.n_steps != 0) and (self.hparams.log_time_interval % self.hparams.noam_annealing.n_steps):
+                elapsed_time = time.time() - self.initial_time
                 self.hparams.tensorboard_train_logger.writer.add_scalar(f'performance/train_time_{self.log_time_interval}_steps', 
                                                                         elapsed_time, 
                                                                         self.hparams.noam_annealing.n_steps)
@@ -203,8 +203,8 @@ class W2VBrain(sb.core.Brain):
                 self.hparams.tensorboard_train_logger.writer.add_scalar('lr/train_step', self.hparams.noam_annealing.current_lr, 
                                                                 self.hparams.noam_annealing.n_steps)
                 
-            if self.hparams.log_time_interval and (self.hparams.log_time_interval % self.hparams.noam_annealing.n_steps):
-                elapsed_time = finish_time - time.time()
+            if self.hparams.log_time_interval and (self.hparams.noam_annealing.n_steps != 0) and (self.hparams.log_time_interval % self.hparams.noam_annealing.n_steps):
+                elapsed_time = time.time() - self.initial_time
                 self.hparams.tensorboard_train_logger.writer.add_scalar(f'performance/train_time_{self.hparams.log_time_interval}_steps', 
                                                                         elapsed_time, 
                                                                         self.hparams.noam_annealing.n_steps)
