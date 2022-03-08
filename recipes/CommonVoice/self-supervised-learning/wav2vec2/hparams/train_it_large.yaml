@@ -48,6 +48,7 @@ batch_ordering: !ref <sorting>
 auto_mix_prec: False
 sample_rate: 16000
 ckpt_interval_minutes: 30 # save checkpoint every N min
+log_time_interval: 25 # time is measured every X number of optimizer steps
 
 # With data_parallel batch_size is split into N jobs
 # With DDP batch_size is multiplied by N jobs
