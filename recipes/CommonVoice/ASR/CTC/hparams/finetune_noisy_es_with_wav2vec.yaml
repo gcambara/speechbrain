@@ -9,15 +9,17 @@
 # Seed needs to be set at top of yaml, before objects with parameters are made
 seed: 1234
 __set_seed: !!python/object/apply:torch.manual_seed [!ref <seed>]
-output_folder: !ref results/wav2vec2_ctc_es/<seed>
+output_folder: !ref results/wav2vec2_ctc_es_finetune_noisy/<seed>
 wer_file: !ref <output_folder>/wer.txt
 save_folder: !ref <output_folder>/save
 train_log: !ref <output_folder>/train_log.txt
 
 # URL for the biggest Fairseq english wav2vec2 model.
 wav2vec2_hub: facebook/wav2vec2-large-es-voxpopuli
+pretrained: '/homedtic/gcambara/projects/ingenious/git/sb_es/recipes/CommonVoice/ASR/CTC/results/wav2vec2_ctc_es/2/save/CKPT+2022-01-30+18-45-21+00'
 
 # Data files
+noise_csv: /homedtic/gcambara/projects/ingenious/git/speechbook/data/noises/train.csv
 data_folder: /datasets/TALN/speech/esp/commonvoice/cv-corpus-5.1-2020-06-22/es  # e.g, /local/scratch/cv-corpus-5.1-2020-06-22/it
 train_tsv_file: !ref <data_folder>/train.tsv  # Standard CommonVoice .tsv files
 dev_tsv_file: !ref <data_folder>/dev.tsv  # Standard CommonVoice .tsv files
@@ -81,6 +83,14 @@ eos_index: 2
 epoch_counter: !new:speechbrain.utils.epoch_loop.EpochCounter
     limit: !ref <number_of_epochs>
 
+env_corrupt: !new:speechbrain.lobes.augment.EnvCorrupt
+   noise_csv: !ref <noise_csv>
+   babble_prob: 0.0
+   reverb_prob: 0.0
+   noise_prob: 1.0
+   noise_snr_low: 0.0
+   noise_snr_high: 15.0
+
 augmentation: !new:speechbrain.lobes.augment.TimeDomainSpecAugment
     sample_rate: !ref <sample_rate>
     speeds: [95, 100, 105]
@@ -140,6 +150,7 @@ modules:
     wav2vec2: !ref <wav2vec2>
     enc: !ref <enc>
     ctc_lin: !ref <ctc_lin>
+    env_corrupt: !ref <env_corrupt>
 
 model: !new:torch.nn.ModuleList
     - [!ref <enc>, !ref <ctc_lin>]

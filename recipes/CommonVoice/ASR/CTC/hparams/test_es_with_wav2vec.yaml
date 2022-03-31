@@ -14,17 +14,22 @@ wer_file: !ref <output_folder>/wer.txt
 save_folder: !ref <output_folder>/save
 train_log: !ref <output_folder>/train_log.txt
 
+# pretrained ASR
+pretrained_model: /homedtic/gcambara/projects/ingenious/git/sb_es/recipes/CommonVoice/ASR/CTC/results/wav2vec2_ctc_es/2/save/CKPT+2022-01-30+18-45-21+00/model.ckpt
+pretrained_wav2vec2: /homedtic/gcambara/projects/ingenious/git/sb_es/recipes/CommonVoice/ASR/CTC/results/wav2vec2_ctc_es/2/save/CKPT+2022-01-30+18-45-21+00/wav2vec2.ckpt
+pretrained_wav2vec2_opt: /homedtic/gcambara/projects/ingenious/git/sb_es/recipes/CommonVoice/ASR/CTC/results/wav2vec2_ctc_es/2/save/CKPT+2022-01-30+18-45-21+00/wav2vec_opt.ckpt
+pretrained_brain: /homedtic/gcambara/projects/ingenious/git/sb_es/recipes/CommonVoice/ASR/CTC/results/wav2vec2_ctc_es/2/save/CKPT+2022-01-30+18-45-21+00/brain.ckpt
+#pretrained_brain: /homedtic/gcambara/projects/ingenious/git/sb_es/recipes/CommonVoice/ASR/CTC/results/wav2vec2_ctc_es/2/save/CKPT+2022-01-30+13-13-40+00/brain.ckpt
+
 # URL for the biggest Fairseq english wav2vec2 model.
-wav2vec2_hub: facebook/wav2vec2-large-es-voxpopuli
+#wav2vec2_hub: facebook/wav2vec2-large-es-voxpopuli
 
 # Data files
 data_folder: /datasets/TALN/speech/esp/commonvoice/cv-corpus-5.1-2020-06-22/es  # e.g, /local/scratch/cv-corpus-5.1-2020-06-22/it
-train_tsv_file: !ref <data_folder>/train.tsv  # Standard CommonVoice .tsv files
 dev_tsv_file: !ref <data_folder>/dev.tsv  # Standard CommonVoice .tsv files
 test_tsv_file: !ref <data_folder>/test.tsv  # Standard CommonVoice .tsv files
 accented_letters: True
 language: es # use 'it' for Italian, 'rw' for Kinyarwanda, 'en' for English, 'es' for Spanish
-train_csv: !ref <save_folder>/train.csv
 valid_csv: !ref <save_folder>/dev.csv
 test_csv: !ref <save_folder>/test.csv
 skip_prep: False # Skip data preparation
@@ -107,11 +112,11 @@ enc: !new:speechbrain.nnet.containers.Sequential
     bn3: !name:speechbrain.nnet.normalization.BatchNorm1d
     activation3: !new:torch.nn.LeakyReLU
 
-wav2vec2: !new:speechbrain.lobes.models.huggingface_wav2vec.HuggingFaceWav2Vec2
-    source: !ref <wav2vec2_hub>
-    output_norm: True
-    freeze: !ref <freeze_wav2vec>
-    save_path: !ref <save_folder>/wav2vec2_checkpoint
+# wav2vec2: !new:speechbrain.lobes.models.huggingface_wav2vec.HuggingFaceWav2Vec2
+#     source: !ref <wav2vec2_hub>
+#     output_norm: True
+#     freeze: !ref <freeze_wav2vec>
+#     save_path: !ref <save_folder>/wav2vec2_checkpoint
 
 #####
 # Uncomment this block if you prefer to use a Fairseq pretrained model instead
@@ -136,10 +141,10 @@ log_softmax: !new:speechbrain.nnet.activations.Softmax
 ctc_cost: !name:speechbrain.nnet.losses.ctc_loss
     blank_index: !ref <blank_index>
 
-modules:
-    wav2vec2: !ref <wav2vec2>
-    enc: !ref <enc>
-    ctc_lin: !ref <ctc_lin>
+# modules:
+#     wav2vec2: !ref <wav2vec2>
+#     enc: !ref <enc>
+#     ctc_lin: !ref <ctc_lin>
 
 model: !new:torch.nn.ModuleList
     - [!ref <enc>, !ref <ctc_lin>]
@@ -164,17 +169,17 @@ lr_annealing_wav2vec: !new:speechbrain.nnet.schedulers.NewBobScheduler
     annealing_factor: 0.9
     patient: 0
 
-checkpointer: !new:speechbrain.utils.checkpoints.Checkpointer
-    checkpoints_dir: !ref <save_folder>
-    recoverables:
-        wav2vec2: !ref <wav2vec2>
-        model: !ref <model>
-        scheduler_model: !ref <lr_annealing_model>
-        scheduler_wav2vec: !ref <lr_annealing_wav2vec>
-        counter: !ref <epoch_counter>
+# checkpointer: !new:speechbrain.utils.checkpoints.Checkpointer
+#     checkpoints_dir: !ref <save_folder>
+#     recoverables:
+#         wav2vec2: !ref <wav2vec2>
+#         model: !ref <model>
+#         scheduler_model: !ref <lr_annealing_model>
+#         scheduler_wav2vec: !ref <lr_annealing_wav2vec>
+#         counter: !ref <epoch_counter>
 
-train_logger: !new:speechbrain.utils.train_logger.FileTrainLogger
-    save_file: !ref <train_log>
+# train_logger: !new:speechbrain.utils.train_logger.FileTrainLogger
+#     save_file: !ref <train_log>
 
 error_rate_computer: !name:speechbrain.utils.metric_stats.ErrorRateStats
 

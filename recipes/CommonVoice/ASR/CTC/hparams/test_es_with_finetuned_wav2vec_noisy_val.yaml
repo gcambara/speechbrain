@@ -7,9 +7,9 @@
 # ################################
 
 # Seed needs to be set at top of yaml, before objects with parameters are made
-seed: 1234
+seed: 1993
 __set_seed: !!python/object/apply:torch.manual_seed [!ref <seed>]
-output_folder: !ref results/wav2vec2_ctc_es/<seed>
+output_folder: !ref results/wav2vec2_ctc_es_finetune_noisy/<seed>
 wer_file: !ref <output_folder>/wer.txt
 save_folder: !ref <output_folder>/save
 train_log: !ref <output_folder>/train_log.txt
@@ -25,9 +25,9 @@ test_tsv_file: !ref <data_folder>/test.tsv  # Standard CommonVoice .tsv files
 accented_letters: True
 language: es # use 'it' for Italian, 'rw' for Kinyarwanda, 'en' for English, 'es' for Spanish
 train_csv: !ref <save_folder>/train.csv
-valid_csv: !ref <save_folder>/dev.csv
-test_csv: !ref <save_folder>/test.csv
-skip_prep: False # Skip data preparation
+valid_csv: !ref <save_folder>/test_noisy.csv
+test_csv: !ref <save_folder>/test_noisy.csv
+skip_prep: True # Skip data preparation
 
 # We remove utterance slonger than 10s in the train/dev/test sets as
 # longer sentences certainly correspond to "open microphones".
